@@ -84,7 +84,10 @@ def reconstruction(cfg):
         train_dataset = get_train_dataset(cfg, is_stack=True)
         
     if cfg.data.dataset_name == "tum_rgbd":
-        test_dataset = get_train_dataset(cfg, is_stack=True)
+        test_dataset = get_test_dataset(cfg, is_stack=True)
+    else:
+        test_dataset = get_test_dataset(cfg, is_stack=True)
+        
     ndc_ray = test_dataset.ndc_ray
     white_bg = test_dataset.white_bg
     near_far = test_dataset.near_far

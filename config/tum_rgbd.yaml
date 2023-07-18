@@ -1,12 +1,13 @@
 systems:
-  basedir: "./logs"
-  vis_every: 1
+  basedir: ".logs/"
+  vis_every: 5000
+  # was 50000
 
 model:
   N_voxel_init: 262144
   time_grid_init: 31
   time_grid_final: 300
-  upsampling_type: aligne
+  upsampling_type: aligned
   upsample_list: [70000, 140000, 210000]
   update_emptymask_list: [50000, 100000, 150000, 220000]
 
@@ -27,15 +28,15 @@ data:
   scene_bbox_max: [2.5, 2.0, 1.0]
   N_vis: 5
 
-  datasampler_type: rays
-  stage_1_iteration: 200
-  stage_2_iteration: 0
-  stage_3_iteration: 0
+  datasampler_type: hierach
+  stage_1_iteration: 300000
+  stage_2_iteration: 250000
+  stage_3_iteration: 100000
   key_f_num: 30
   downsample: 1.0
 
 optim:
-  n_iters: 200
+  n_iters: 650000
 
 render_test: True
 render_path: True

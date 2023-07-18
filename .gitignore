@@ -8,6 +8,7 @@ __pycache__/
 # Internal files
 data/
 logs/
+.logs/
 
 # Distribution / packaging
 .Python

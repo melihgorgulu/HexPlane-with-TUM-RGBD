@@ -269,14 +269,12 @@ class Neural3D_NDC_Dataset(Dataset):
         self.directions = torch.tensor(
             get_ray_directions_blender(H, W, self.focal)
         )  # (H, W, 3)
-
         if self.split == "train":
             # Loading all videos from this dataset requires around 50GB memory, and stack them into a tensor requires another 50GB.
             # To save memory, we allocate a large tensor and load videos into it instead of using torch.stack/cat operations.
             all_times = []
             all_rays = []
             count = 300
-
             for index in range(0, len(videos)):
                 if (
                     index == self.eval_index
@@ -305,7 +303,7 @@ class Neural3D_NDC_Dataset(Dataset):
             )
             all_times = torch.stack(all_times, 0)
             all_rays = torch.stack(all_rays, 0)
-            breakpoint()
+            #breakpoint()
             print("stack performed")
             N_cam, N_time, N_rays, C = all_imgs.shape
             self.image_stride = N_rays

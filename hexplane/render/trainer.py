@@ -78,6 +78,7 @@ class Trainer:
         """
         Precompute  spatial and temporal grid upsampling sizes.
         """
+        #breakpoint()
         upsample_list = self.cfg.model.upsample_list
         if (
             self.cfg.model.upsampling_type == "unaligned"
@@ -168,6 +169,7 @@ class Trainer:
                 probability = GM_Resi(
                     rgb_train, self.global_mean[cam_i], self.cfg.data.stage_1_gamma
                 )
+                breakpoint()
                 select_inds = torch.multinomial(
                     probability, self.cfg.optim.batch_size
                 ).to(rays_train.device)
@@ -239,7 +241,6 @@ class Trainer:
 
     def train(self):
         torch.cuda.empty_cache()
-
         # load the training and testing dataset and other settings.
         train_dataset = self.train_dataset
         test_dataset = self.test_dataset
@@ -256,6 +257,11 @@ class Trainer:
             self.cfg.model.nSamples,
             cal_n_samples(reso_cur, self.cfg.model.step_ratio),
         )
+        
+        if len(train_dataset.all_times.shape) == 1:
+            n_frame, n_ray = train_dataset.all_rgbs.shape[:-1]
+            train_dataset.all_times = train_dataset.all_times.view(n_frame,1)
+            train_dataset.all_times = train_dataset.all_times.repeat(1, n_ray)
 
         # Filter the rays based on the bbox
         if (self.cfg.data.datasampler_type == "rays") and (ndc_ray is False):
@@ -302,7 +308,7 @@ class Trainer:
         optimizer = torch.optim.Adam(
             grad_vars, betas=(self.cfg.optim.beta1, self.cfg.optim.beta2)
         )
-
+        #breakpoint()
         for iteration in pbar:
             # Sample dat
             rays_train, rgb_train, frame_time, depth = self.sample_data(

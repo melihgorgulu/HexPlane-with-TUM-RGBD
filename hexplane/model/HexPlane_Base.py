@@ -363,6 +363,7 @@ class HexPlane_Base(torch.nn.Module):
         """
         print("========> filtering rays ...")
         tt = time.time()
+        # breakpoint()
         N = torch.tensor(all_rays.shape[:-1]).prod()
         mask_filtered = []
         idx_chunks = torch.split(torch.arange(N), chunk)
