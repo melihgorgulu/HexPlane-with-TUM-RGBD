@@ -155,7 +155,7 @@ class DNerfDataset(Dataset):
     def read_meta(self):
         with open(os.path.join(self.root_dir, f"transforms_{self.split}.json")) as f:
             self.meta = json.load(f)
-
+        
         w, h = self.img_wh
         self.focal = (
             0.5 * 800 / np.tan(0.5 * self.meta["camera_angle_x"])
@@ -216,6 +216,7 @@ class DNerfDataset(Dataset):
             ).expand(rays_o.shape[0], 1)
             self.all_times += [cur_time]
 
+        breakpoint()
         self.poses = torch.stack(self.poses)
         #  self.is_stack stacks all images into a big chunk, with shape (N, H, W, 3).
         #  Otherwise, all images are kept as a set of rays with shape (N_s, 3), where N_s = H * W * N
