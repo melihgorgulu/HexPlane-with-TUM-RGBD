@@ -9,6 +9,8 @@ __pycache__/
 data/
 logs/
 .logs/
+.DS_Store
+.idea/
 
 # Distribution / packaging
 .Python
