@@ -1,6 +1,6 @@
 systems:
   basedir: ".logs/"
-  vis_every: 50000
+  vis_every: 3000
 
 model:
   N_voxel_init: 262144

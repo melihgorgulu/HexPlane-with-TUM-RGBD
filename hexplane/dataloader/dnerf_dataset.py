@@ -216,7 +216,7 @@ class DNerfDataset(Dataset):
             ).expand(rays_o.shape[0], 1)
             self.all_times += [cur_time]
 
-        breakpoint()
+
         self.poses = torch.stack(self.poses)
         #  self.is_stack stacks all images into a big chunk, with shape (N, H, W, 3).
         #  Otherwise, all images are kept as a set of rays with shape (N_s, 3), where N_s = H * W * N

@@ -77,20 +77,17 @@ def render_test(cfg):
 
 
 def reconstruction(cfg):
-    # TODO: Implement get train dataset function for TUM RGBD
     if cfg.data.datasampler_type == "rays":
         train_dataset = get_train_dataset(cfg, is_stack=False)
     else:
         train_dataset = get_train_dataset(cfg, is_stack=True)
-        
-    if cfg.data.dataset_name == "tum_rgbd":
-        test_dataset = get_test_dataset(cfg, is_stack=True)
-    else:
-        test_dataset = get_test_dataset(cfg, is_stack=True)
+
+    test_dataset = get_test_dataset(cfg, is_stack=True)
         
     ndc_ray = test_dataset.ndc_ray
     white_bg = test_dataset.white_bg
     near_far = test_dataset.near_far
+
 
     if cfg.systems.add_timestamp:
         logfolder = f'{cfg.systems.basedir}/{cfg.expname}{datetime.datetime.now().strftime("-%Y%m%d-%H%M%S")}'

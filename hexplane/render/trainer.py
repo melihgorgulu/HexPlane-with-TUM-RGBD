@@ -78,7 +78,7 @@ class Trainer:
         """
         Precompute  spatial and temporal grid upsampling sizes.
         """
-        #breakpoint()
+
         upsample_list = self.cfg.model.upsample_list
         if (
             self.cfg.model.upsampling_type == "unaligned"
@@ -169,7 +169,7 @@ class Trainer:
                 probability = GM_Resi(
                     rgb_train, self.global_mean[cam_i], self.cfg.data.stage_1_gamma
                 )
-                breakpoint()
+
                 select_inds = torch.multinomial(
                     probability, self.cfg.optim.batch_size
                 ).to(rays_train.device)
@@ -310,7 +310,7 @@ class Trainer:
         )
         #breakpoint()
         for iteration in pbar:
-            # Sample dat
+            # Sample data
             rays_train, rgb_train, frame_time, depth = self.sample_data(
                 train_dataset, iteration
             )

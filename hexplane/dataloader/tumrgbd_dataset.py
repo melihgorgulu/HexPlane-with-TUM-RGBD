@@ -8,7 +8,7 @@ import gc
 import tqdm
 import cv2
 from datetime import datetime
-
+from PIL import Image
 from .ray_utils import get_ray_directions_blender, get_rays, ndc_rays_blender_tum
 
 
@@ -221,7 +221,7 @@ class TUMRgbdDataset(Dataset):
 
         # TODO: CHECK NEAR AND FAR VALUES
         self.near = 0.0
-        self.far = 1.0
+        self.far = 9.88 # TODO: THIS IS PROBABLY 9.9, TRY TO FIND IT
         self.near_far = np.array([self.near, self.far])  # NDC near far is [0, 1.0]
         self.frame_rate = 32
         self.white_bg = False
@@ -242,12 +242,12 @@ class TUMRgbdDataset(Dataset):
 
         # TODO: AFTER MAKE SURE ABOUT NEAR AND FAR VALUES, TRY TO CALL THIS FUNCTION
         if cal_fine_bbox:
+            print("I AM CALCULATIGN BITCHES")
             xyz_min, xyz_max = self.compute_bbox()
             self.scene_bbox = torch.stack((xyz_min, xyz_max), dim=0)
 
         # self.define_proj_mat()
 
-        self.white_bg = True
         self.ndc_ray = False
         self.depth_data = False
 
@@ -267,8 +267,16 @@ class TUMRgbdDataset(Dataset):
 
         images = []
         for k in np.arange(k0, k1):
-            image = cv2.imread(self.images[k])
-            image = torch.Tensor(image).view(3, -1).permute(1, 0)  # (h*w, 3) RGBA
+            img_path = self.images[k]
+            
+            image = Image.open(img_path)
+            
+            if self.downsample != 1.0:
+                image = image.resize(self.img_wh, Image.LANCZOS)
+                
+            image = self.transform(image)
+            #image_opencv = cv2.imread(img_path)
+            image = image.view(3, -1).permute(1, 0)  # (h*w, 3) RGBA
             # depth = cv2.imread(self.depths[k], cv2.IMREAD_UNCHANGED)
             # depth = depth[:, :, np.newaxis].astype(np.int32) # Pytorch cannot handle uint16
             images += [image]

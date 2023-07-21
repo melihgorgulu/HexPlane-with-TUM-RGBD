@@ -92,7 +92,7 @@ class Model_Config:
 @dataclass
 class Data_Config:
     datadir: str = "./data"
-    dataset_name: str = "neural3D_NDC"  # choose from "dnerf", "neural3D_NDC" or "tum_rgbd"
+    dataset_name: str = "tum_rgbd"  # choose from "dnerf", "neural3D_NDC" or "tum_rgbd"
     downsample: float = 1.0
     cal_fine_bbox: bool = False
     N_vis: int = -1
@@ -100,6 +100,7 @@ class Data_Config:
     scene_bbox_min: List[float] = field(default_factory=lambda: [-1.0, -1.0, -1.0])
     scene_bbox_max: List[float] = field(default_factory=lambda: [1.0, 1.0, 1.0])
     N_random_pose: int = 1000
+    cal_fine_bbox: bool = False
     # for dnerf
 
     # for neural3D_NDC

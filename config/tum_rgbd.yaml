@@ -1,13 +1,13 @@
 systems:
   basedir: ".logs/"
-  vis_every: 5000
+  vis_every: 50000
   # was 50000
 
 model:
   N_voxel_init: 262144
   # TODO: Adjust these values
-  time_grid_init: 82 # int(685*0.24)*0.5 - > 685 is frame rate
-  time_grid_final: 31 # TODO: try 15 too
+  time_grid_init: 16 # int(685*0.24)*0.5 - > 685 is frame rate
+  time_grid_final: 24 # TODO: try different params
   upsampling_type: unaligned
   upsample_list: [3000, 6000, 9000]
   update_emptymask_list: [4000, 8000, 10000]
@@ -23,11 +23,11 @@ model:
 data:
   datadir: "./data/rgbd_dataset_freiburg3_sitting_static"
   dataset_name: tum_rgbd
-  scene_bbox_min: [-1.5, -1.5, -1.5]
-  scene_bbox_max: [1.5, 1.5, 1.5]
+  scene_bbox_min: [-1.9219, -1.4237, -1.0000]
+  scene_bbox_max: [1.6996,  1.6841, 18.7600]
   N_vis: 5
 
-  datasampler_type: hierach
+  datasampler_type: rays
   #stage_1_iteration: 300000
   #stage_2_iteration: 250000
   #stage_3_iteration: 100000

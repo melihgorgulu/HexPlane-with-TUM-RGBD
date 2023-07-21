@@ -293,7 +293,7 @@ class Neural3D_NDC_Dataset(Dataset):
                 gc.collect()
 
             # load all video images
-            breakpoint()
+            #breakpoint()
             all_imgs = process_videos(
                 videos,
                 self.eval_index,
