@@ -5,8 +5,8 @@ import torch
 import torch.nn
 from torch.nn import functional as F
 
-from hexplane.model.mlp import General_MLP
-from hexplane.model.sh import eval_sh_bases
+from thirdparty.HexPlane.hexplane.model.mlp import General_MLP
+from thirdparty.HexPlane.hexplane.model.sh import eval_sh_bases
 
 
 def raw2alpha(sigma: torch.Tensor, dist: torch.Tensor) -> torch.Tensor:

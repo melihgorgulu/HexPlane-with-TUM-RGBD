@@ -1,7 +1,7 @@
 import torch
 from torch.nn import functional as F
 
-from hexplane.model.HexPlane_Base import HexPlane_Base
+from thirdparty.HexPlane.hexplane.model.HexPlane_Base import HexPlane_Base
 
 
 class HexPlane(HexPlane_Base):

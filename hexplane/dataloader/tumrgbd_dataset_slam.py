@@ -175,7 +175,7 @@ def render_path_spiral(c2w, up, rads, focal, zdelta, zrate, N_rots=2, N=120):
     return render_poses
 
 
-class TUMRgbdDataset(Dataset):
+class TUMRgbdSlamDataset(Dataset):
     def __init__(
             self,
             datadir,
@@ -192,9 +192,12 @@ class TUMRgbdDataset(Dataset):
             eval_step=1,
             eval_index=0,
             sphere_scale=1.0,
+            images=[],
+            poses=[],
+            timestamps=[]
     ):
-        self.img_wh = (int(640 / downsample), int(480 / downsample))  # 640x480
-        self.root_dir = datadir
+        # self.img_wh = (int(640 / downsample), int(480 / downsample))  # 640x480
+        # self.root_dir = datadir
         self.split = split
         self.downsample = downsample
 
@@ -228,7 +231,7 @@ class TUMRgbdDataset(Dataset):
         self.ndc_ray = True
         self.depth_data = False
 
-        self.transform = T.ToTensor()
+        # self.transform = T.ToTensor()
 
         fx = 535.4 / downsample
         fy = 539.2 / downsample
@@ -236,6 +239,10 @@ class TUMRgbdDataset(Dataset):
         cx = 320.1
         cy = 247.6
         self.opt_centers = [cx, cy]
+
+        self.images = images
+        self.poses = poses
+        self.timestamps = timestamps
 
         self.load_meta()
         print("____ Meta data is successfully loaded ! ____")
@@ -409,92 +416,17 @@ class TUMRgbdDataset(Dataset):
         pose[:3, 3] = pvec[:3]
         return pose
 
-    def associate_frames(self, tstamp_image, tstamp_depth, tstamp_pose, max_dt=0.08):
-        """ pair images, depths, and poses """
-        associations = []
-        for i, t in enumerate(tstamp_image):
-            if tstamp_pose is None:
-                j = np.argmin(np.abs(tstamp_depth - t))
-                if np.abs(tstamp_depth[j] - t) < max_dt:
-                    associations.append((i, j))
-            else:
-                j = np.argmin(np.abs(tstamp_depth - t))
-                k = np.argmin(np.abs(tstamp_pose - t))
-
-                if (np.abs(tstamp_depth[j] - t) < max_dt) and \
-                        (np.abs(tstamp_pose[k] - t) < max_dt):
-                    associations.append((i, j, k))
-
-        return associations
-
-    def parse_dataset(self, datapath, frame_rate=-1):
-        """ read video data in tum-rgbd format """
-        if os.path.isfile(os.path.join(datapath, 'groundtruth.txt')):
-            pose_list = os.path.join(datapath, 'groundtruth.txt')
-        elif os.path.isfile(os.path.join(datapath, 'pose.txt')):
-            pose_list = os.path.join(datapath, 'pose.txt')
-
-        image_list = os.path.join(datapath, 'rgb.txt')
-        depth_list = os.path.join(datapath, 'depth.txt')
-
-        # parse data
-        image_data = self.parse_list(image_list)
-        depth_data = self.parse_list(depth_list)
-        pose_data = self.parse_list(pose_list, skiprows=1)
-        pose_vecs = pose_data[:, 1:].astype(np.float64)
-
-        # associate dept rgb and ground truth data
-        tstamp_image = image_data[:, 0].astype(np.float64)
-        tstamp_depth = depth_data[:, 0].astype(np.float64)
-        tstamp_pose = pose_data[:, 0].astype(np.float64)
-        associations = self.associate_frames(
-            tstamp_image, tstamp_depth, tstamp_pose)  # (image, depth, pose) pairs
-
-        indicies = [0]
-        for i in range(1, len(associations)):
-            t0 = tstamp_image[associations[indicies[-1]][0]]  # take association index for image and then get timestamp
-            t1 = tstamp_image[associations[i][0]]
-            if t1 - t0 > 1.0 / frame_rate:
-                indicies += [i]
-
-        images, poses, depths = [], [], []
-        inv_pose = None
-        # get valid pairs
-        tstamp_out = []
-        for ix in indicies:
-            (i, j, k) = associations[ix]  # image idx, depth idx, pose idx
-            images += [os.path.join(datapath, image_data[i, 1])]
-            depths += [os.path.join(datapath, depth_data[j, 1])]
-            # get camera extrinsics matrix.
-            # represents tranformation of the camera in 3D space
-
-            c2w = self.pose_matrix_from_quaternion(pose_vecs[k])
-            # inv pose: The inverse of a camera's extrinsic matrix, also known as the camera's pose matrix,
-            # represents the transformation that maps points from the camera's coordinate system to the world coordinate system.
-            # if inv_pose is None:
-            #    inv_pose = np.linalg.inv(c2w)
-            #    c2w = np.eye(4)
-            # else:
-            #    c2w = inv_pose @ c2w
-            # c2w[:3, 1] *= -1
-            # c2w[:3, 2] *= -1
-            # c2w = torch.from_numpy(c2w).float()
-            c2w = c2w[0:3, :]
-            poses += [c2w]
-            tstamp_out.append(tstamp_image[ix])
-
-        return images, poses, tstamp_out
-
     def load_meta(self):
         # read poses and video file paths
-        self.images, self.poses, t_stamps = self.parse_dataset(self.root_dir, frame_rate=self.frame_rate)
-        assert len(self.images) == len(self.poses)
-        assert len(self.images) == len(t_stamps)
+        assert self.images.shape[0] == self.poses.shape[0]
+        assert self.images.shape[0] == self.timestamps.shape[0]
 
-        W, H = self.img_wh
+        self.timestamps = self.timestamps.tolist()
+
+        bs, _, H, W = self.images.shape
+        self.img_wh = (W, H)
+
         # recenter poses
-        if type(self.poses) == list:
-            self.poses = np.array(self.poses)
         self.poses, pose_avg = center_poses(self.poses, self.blender2opencv)
 
         #  # Sample N_views poses for validation - NeRF-like camera trajectory.
@@ -512,13 +444,13 @@ class TUMRgbdDataset(Dataset):
 
         """
         self.colorpaths: List[str] -> contains rgb image paths
-        self.poses: List[torch.Tensor] with shape [3,4] -> pose values for the corresponding timestamp
+        self.poses: List[torch.Tensor] with shape [4,4] -> pose values for the corresponding timestamp
         self.t_stamps: List[TimeStamps] -> List of timestamps for the corresponding frame
         """
         all_rays = []
         all_times = []
-        frame_count = len(t_stamps)
-        for idx in range(0, len(t_stamps)):
+        frame_count = len(self.timestamps)
+        for idx in range(0, len(self.timestamps)):
             rays_o, rays_d = get_rays(self.directions,
                                       torch.FloatTensor(self.poses[idx]))  # both (h*w, 3)
             rays_o, rays_d = ndc_rays_blender_tum(H, W, self.focal, 1.0, rays_o, rays_d)
@@ -528,9 +460,9 @@ class TUMRgbdDataset(Dataset):
             print(f"timestamp {idx} is loaded")
             gc.collect()
 
-        all_rgbs = self._get_data_packet(0, len(self.images))
+        all_rgbs = self.images.permute(0, 2, 3, 1).view(bs, -1, 3)
         # TODO: In tum rgbd case, number of cam is 1. make sure to add it to the dataloader.
-        N_cam, N_rays, C = torch.stack(all_rgbs).shape
+        N_cam, N_rays, C = all_rgbs.shape
         # breakpoint()
         # TODO: Try time scale
         # all_times = torch.from_numpy(np.array(t_stamps))
@@ -538,13 +470,13 @@ class TUMRgbdDataset(Dataset):
         if not self.is_stack:
             print("Catting ...")
             all_rays = torch.cat(all_rays, 0)
-            all_rgbs = torch.cat(all_rgbs, 0)
+            all_rgbs = all_rgbs.reshape(-1, 3)
             all_times = torch.cat(all_times, 0)
             print("Catting performed !!")
         else:
             print("Stacking ...")
             all_rays = torch.stack(all_rays, 0)
-            all_rgbs = torch.stack(all_rgbs, 0).reshape(-1, *self.img_wh[::-1], 3)
+            all_rgbs = all_rgbs.reshape(-1, 3).reshape(-1, *self.img_wh[::-1], 3)
             all_times = torch.stack(all_times, 0)
             print("Stack performed !!")
         # apply time scale
