@@ -225,8 +225,8 @@ class TUMRgbdSlamDataset(Dataset):
 
         # TODO: CHECK NEAR AND FAR VALUES
         self.near = 0.0
-        # self.far = 9.88 # TODO: THIS IS PROBABLY 9.9, TRY TO FIND IT
-        self.far = 80
+        self.far = 9.88 # TODO: THIS IS PROBABLY 9.9, TRY TO FIND IT
+        # self.far = 80
         self.near_far = np.array([self.near, self.far])  # NDC near far is [0, 1.0]
         self.frame_rate = 32
         self.white_bg = False
