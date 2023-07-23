@@ -3,7 +3,7 @@ from .neural_3D_dataset_NDC import Neural3D_NDC_Dataset
 from .tumrgbd_dataset import TUMRgbdDataset
 from .tumrgbd_dataset_slam import TUMRgbdSlamDataset
 
-def get_train_dataset(cfg, is_stack=False, images=[], poses=[], timestamps=[]):
+def get_train_dataset(cfg, is_stack=False, images=[], poses=[], timestamps=[], intrinsics=[]):
     if cfg.data.dataset_name == "dnerf":
         train_dataset = DNerfDataset(
             cfg.data.datadir,
@@ -71,14 +71,15 @@ def get_train_dataset(cfg, is_stack=False, images=[], poses=[], timestamps=[]):
             sphere_scale=cfg.data.nv3d_ndc_sphere_scale,
             images=images,
             poses=poses,
-            timestamps=timestamps
+            timestamps=timestamps,
+            intrinsics=intrinsics
         )
     else:
         raise NotImplementedError("No such dataset")
     return train_dataset
 
 
-def get_test_dataset(cfg, is_stack=True, images=[], poses=[], timestamps=[]):
+def get_test_dataset(cfg, is_stack=True, images=[], poses=[], timestamps=[], intrinsics=[]):
     if cfg.data.dataset_name == "dnerf":
         test_dataset = DNerfDataset(
             cfg.data.datadir,
@@ -146,7 +147,8 @@ def get_test_dataset(cfg, is_stack=True, images=[], poses=[], timestamps=[]):
             sphere_scale=cfg.data.nv3d_ndc_sphere_scale,
             images=images,
             poses=poses,
-            timestamps=timestamps
+            timestamps=timestamps,
+            intrinsics=intrinsics
         )
     else:
         raise NotImplementedError("No such dataset")

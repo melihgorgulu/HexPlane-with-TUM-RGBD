@@ -1,8 +1,8 @@
 import torch
 
-from thirdparty.HexPlane.hexplane.model.HexPlane import HexPlane
-from thirdparty.HexPlane.hexplane.model.HexPlane_Slim import HexPlane_Slim
-from thirdparty.HexPlane.hexplane.render.util.util import N_to_reso
+from HexPlane.hexplane.model.HexPlane import HexPlane
+from HexPlane.hexplane.model.HexPlane_Slim import HexPlane_Slim
+from HexPlane.hexplane.render.util.util import N_to_reso
 
 
 def init_model(cfg, aabb, near_far, device):

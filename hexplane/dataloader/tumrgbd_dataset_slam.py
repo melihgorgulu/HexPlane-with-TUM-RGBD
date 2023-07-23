@@ -194,7 +194,8 @@ class TUMRgbdSlamDataset(Dataset):
             sphere_scale=1.0,
             images=[],
             poses=[],
-            timestamps=[]
+            timestamps=[],
+            intrinsics=[]
     ):
         # self.img_wh = (int(640 / downsample), int(480 / downsample))  # 640x480
         # self.root_dir = datadir
@@ -224,21 +225,19 @@ class TUMRgbdSlamDataset(Dataset):
 
         # TODO: CHECK NEAR AND FAR VALUES
         self.near = 0.0
-        self.far = 9.88 # TODO: THIS IS PROBABLY 9.9, TRY TO FIND IT
+        # self.far = 9.88 # TODO: THIS IS PROBABLY 9.9, TRY TO FIND IT
+        self.far = 80
         self.near_far = np.array([self.near, self.far])  # NDC near far is [0, 1.0]
         self.frame_rate = 32
         self.white_bg = False
         self.ndc_ray = True
         self.depth_data = False
 
-        # self.transform = T.ToTensor()
+        self.transform = T.ToTensor()
 
-        fx = 535.4 / downsample
-        fy = 539.2 / downsample
-        self.focal = [fx, fy]
-        cx = 320.1
-        cy = 247.6
-        self.opt_centers = [cx, cy]
+        self.intrinsics = intrinsics
+        self.focal = [intrinsics[0, 0], intrinsics[1, 1]]
+        self.opt_centers = [intrinsics[0, 2], intrinsics[1, 2]]
 
         self.images = images
         self.poses = poses
@@ -407,23 +406,12 @@ class TUMRgbdSlamDataset(Dataset):
                           dtype=np.unicode_, skiprows=skiprows)
         return data
 
-    def pose_matrix_from_quaternion(self, pvec):
-        """ convert 4x4 pose matrix to (t, q) """
-        from scipy.spatial.transform import Rotation
-
-        pose = np.eye(4)
-        pose[:3, :3] = Rotation.from_quat(pvec[3:]).as_matrix()
-        pose[:3, 3] = pvec[:3]
-        return pose
-
     def load_meta(self):
         # read poses and video file paths
-        assert self.images.shape[0] == self.poses.shape[0]
-        assert self.images.shape[0] == self.timestamps.shape[0]
+        assert len(self.images) == self.poses.shape[0]
+        assert len(self.images) == len(self.timestamps)
 
-        self.timestamps = self.timestamps.tolist()
-
-        bs, _, H, W = self.images.shape
+        H, W = cv2.imread(self.images[0]).shape[0:2]
         self.img_wh = (W, H)
 
         # recenter poses
@@ -435,12 +423,6 @@ class TUMRgbdSlamDataset(Dataset):
 
         # TODO: try to use only get_ray_directions in here
         self.directions = get_ray_directions_blender(H, W, self.focal)
-
-        # TODO: Try line below (normalizing)
-        # self.directions = self.directions / torch.norm(self.directions, dim=-1, keepdim=True)
-        self.intrinsics = torch.tensor([[self.focal[0], 0, self.opt_centers[0]],
-                                        [0, self.focal[1], self.opt_centers[1]],
-                                        [0, 0, 1]]).float()
 
         """
         self.colorpaths: List[str] -> contains rgb image paths
@@ -460,9 +442,9 @@ class TUMRgbdSlamDataset(Dataset):
             print(f"timestamp {idx} is loaded")
             gc.collect()
 
-        all_rgbs = self.images.permute(0, 2, 3, 1).view(bs, -1, 3)
+        all_rgbs = self._get_data_packet(0, len(self.images))
         # TODO: In tum rgbd case, number of cam is 1. make sure to add it to the dataloader.
-        N_cam, N_rays, C = all_rgbs.shape
+        N_cam, N_rays, C = torch.stack(all_rgbs).shape
         # breakpoint()
         # TODO: Try time scale
         # all_times = torch.from_numpy(np.array(t_stamps))
@@ -470,13 +452,13 @@ class TUMRgbdSlamDataset(Dataset):
         if not self.is_stack:
             print("Catting ...")
             all_rays = torch.cat(all_rays, 0)
-            all_rgbs = all_rgbs.reshape(-1, 3)
+            all_rgbs = torch.cat(all_rgbs, 0)
             all_times = torch.cat(all_times, 0)
             print("Catting performed !!")
         else:
             print("Stacking ...")
             all_rays = torch.stack(all_rays, 0)
-            all_rgbs = all_rgbs.reshape(-1, 3).reshape(-1, *self.img_wh[::-1], 3)
+            all_rgbs = torch.cat(all_rgbs, 0).reshape(-1, *self.img_wh[::-1], 3)
             all_times = torch.stack(all_times, 0)
             print("Stack performed !!")
         # apply time scale
