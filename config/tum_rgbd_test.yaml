@@ -1,0 +1,50 @@
+systems:
+  basedir: ".logs/"
+  vis_every: 1000
+
+model:
+  N_voxel_init: 262144
+  time_grid_init: 31
+  time_grid_final: 300
+  upsampling_type: aligned
+  upsample_list: [70000, 140000, 210000]
+  update_emptymask_list: [50000, 100000, 150000, 220000]
+
+  depth_loss: True
+  depth_loss_weight: 0.1
+
+  TV_t_s_ratio: 500
+
+  # density_n_comp: [24, 12, 12]
+  # app_n_comp: [48, 24, 24]
+  # fea2denseAct: relu
+  # app_view_pe: 0
+  # app_fea_pe: 0
+
+  # TV_weight_density: 0.0005
+  # TV_weight_app: 0.0005
+
+
+data:
+  datadir: "/media/nico/TOSHIBA EXT/rgbd_bonn_dataset/rgbd_bonn_crowd2"
+  # datadir: "/media/nico/TOSHIBA EXT/TUMRGBD/rgbd_dataset_freiburg3_sitting_rpy"
+  dataset_name: tum_rgbd
+  scene_bbox_min: [-5.0, -10, -5]
+  scene_bbox_max: [5.0, 10, 5]
+  N_vis: 1
+
+  datasampler_type: rays
+  stage_1_iteration: 300000
+  stage_2_iteration: 250000
+  stage_3_iteration: 100000
+  key_f_num: 30
+  downsample: 1.0
+
+  cal_fine_bbox: False
+
+optim:
+  n_iters: 5000
+
+render_test: False
+render_path: True
+expname: tum_rgbd
