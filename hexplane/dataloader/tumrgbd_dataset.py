@@ -574,7 +574,7 @@ class TUMRgbdDataset(Dataset):
 
         """
         self.colorpaths: List[str] -> contains rgb image paths
-        self.poses: List[torch.Tensor] with shape [4,4] -> pose values for the corresponding timestamp
+        self.poses: List[torch.Tensor] with shape [3,4] -> pose values for the corresponding timestamp
         self.t_stamps: List[TimeStamps] -> List of timestamps for the corresponding frame
         """
         all_rays = []

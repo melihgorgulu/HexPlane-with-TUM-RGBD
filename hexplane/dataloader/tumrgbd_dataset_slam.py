@@ -12,6 +12,7 @@ from PIL import Image
 from .ray_utils import get_ray_directions_blender, get_rays, ndc_rays_blender_tum
 
 
+
 def readEXR_onlydepth(filename):
     """
     Read depth data from EXR image file.
@@ -45,6 +46,7 @@ def readEXR_onlydepth(filename):
     Y = None if 'Y' not in header['channels'] else channelData['Y']
 
     return Y
+
 
 def get_spiral(c2ws_all, near_fars, rads_scale=1.0, N_views=120):
     """
@@ -266,10 +268,11 @@ class TUMRgbdSlamDataset(Dataset):
         self.frame_rate = 32
         self.white_bg = False
         self.ndc_ray = True
-
-
         self.transform = T.ToTensor()
         self.png_depth_scale = 6553.5
+        self.depth_data = False
+
+        self.transform = T.ToTensor()
 
         self.intrinsics = intrinsics
         self.focal = [intrinsics[0, 0], intrinsics[1, 1]]
@@ -278,6 +281,7 @@ class TUMRgbdSlamDataset(Dataset):
         self.images = images
         self.poses = poses
         self.depths = depths
+
         self.timestamps = timestamps
 
         self.load_meta()
@@ -292,6 +296,7 @@ class TUMRgbdSlamDataset(Dataset):
 
         self.ndc_ray = False
         self.depth_data = True
+        self.depth_data = False
 
         self.N_random_pose = N_random_pose
         self.center = torch.mean(self.scene_bbox, dim=0).float().view(1, 1, 3)
@@ -300,7 +305,7 @@ class TUMRgbdSlamDataset(Dataset):
         # from these poses and apply depth smooth loss to the rendered depth.
         if split == "train":
             self.init_random_pose()
-            
+
     def _get_data_packet(self, k0, k1=None):
         if k1 is None:
             k1 = k0 + 1
@@ -327,6 +332,7 @@ class TUMRgbdSlamDataset(Dataset):
             # del depth
 
         return images
+
     
     
     def get_depth_data_packet(self, k0, k1=None):
@@ -377,7 +383,6 @@ class TUMRgbdSlamDataset(Dataset):
             sample = {"rays": rays, "rgbs": img, "depths": depths, "time": time}
         return sample
 
-
     def init_random_pose(self):
         # Randomly sample N_random_pose radius, phi, theta and times.
         radius = np.random.randn(self.N_random_pose) * 0.1 + 4
@@ -405,8 +410,8 @@ class TUMRgbdSlamDataset(Dataset):
         rays_o = self.all_rays[:, 0:3]
         viewdirs = self.all_rays[:, 3:6]
         pts_nf = torch.stack(
-            [rays_o + viewdirs * self.near, rays_o + viewdirs * self.far]
-        )q
+            [rays_o + viewdirs * self.near, rays_o + viewdirs * self.far])
+
         xyz_min = torch.minimum(xyz_min, pts_nf.amin((0, 1)))
         xyz_max = torch.maximum(xyz_max, pts_nf.amax((0, 1)))
         print("compute_bbox_by_cam_frustrm: xyz_min", xyz_min)
@@ -416,7 +421,6 @@ class TUMRgbdSlamDataset(Dataset):
         xyz_min -= xyz_shift
         xyz_max += xyz_shift
         return xyz_min, xyz_max
-    
 
     def load_meta(self):
         # read poses and video file paths
