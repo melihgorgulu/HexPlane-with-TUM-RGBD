@@ -42,16 +42,7 @@ def get_train_dataset(cfg, is_stack=False):
             "train",
             cfg.data.downsample,
             is_stack=is_stack,
-            cal_fine_bbox=cfg.data.cal_fine_bbox,
             N_vis=cfg.data.N_vis,
-            time_scale=cfg.data.time_scale,
-            scene_bbox_min=cfg.data.scene_bbox_min,
-            scene_bbox_max=cfg.data.scene_bbox_max,
-            N_random_pose=cfg.data.N_random_pose,
-            bd_factor=cfg.data.nv3d_ndc_bd_factor,
-            eval_step=cfg.data.nv3d_ndc_eval_step,
-            eval_index=cfg.data.nv3d_ndc_eval_index,
-            sphere_scale=cfg.data.nv3d_ndc_sphere_scale,
         )
     elif cfg.data.dataset_name == "colmap":
         train_dataset = ColmapDataset(
@@ -121,16 +112,7 @@ def get_test_dataset(cfg, is_stack=True):
             "test",
             cfg.data.downsample,
             is_stack=is_stack,
-            cal_fine_bbox=cfg.data.cal_fine_bbox,
             N_vis=cfg.data.N_vis,
-            time_scale=cfg.data.time_scale,
-            scene_bbox_min=cfg.data.scene_bbox_min,
-            scene_bbox_max=cfg.data.scene_bbox_max,
-            N_random_pose=cfg.data.N_random_pose,
-            bd_factor=cfg.data.nv3d_ndc_bd_factor,
-            eval_step=cfg.data.nv3d_ndc_eval_step,
-            eval_index=cfg.data.nv3d_ndc_eval_index,
-            sphere_scale=cfg.data.nv3d_ndc_sphere_scale,
         )
     elif cfg.data.dataset_name == "colmap":
         test_dataset = ColmapDataset(

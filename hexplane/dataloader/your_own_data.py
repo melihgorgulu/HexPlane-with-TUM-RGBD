@@ -160,20 +160,20 @@ class YourOwnDataset(Dataset):
             timestamp = torch.tensor(timestamps[i], dtype=torch.float32).expand(rays_o.shape[0], 1)
             self.all_times.append(timestamp)
 
-        self.poses = torch.stack(self.poses)
+        self.poses = torch.stack(self.poses[:400])
         if not self.is_stack:
-            self.all_rays = torch.cat(self.all_rays[:100], 0)  # (len(self.meta['frames])*h*w, 3)
-            self.all_rgbs = torch.cat(self.all_rgbs[:100], 0)  # (len(self.meta['frames])*h*w, 3)
-            self.all_times = torch.cat(self.all_times[:100], 0)
+            self.all_rays = torch.cat(self.all_rays[:400], 0)  # (len(self.meta['frames])*h*w, 3)
+            self.all_rgbs = torch.cat(self.all_rgbs[:400], 0)  # (len(self.meta['frames])*h*w, 3)
+            self.all_times = torch.cat(self.all_times[:400], 0)
 
 #             self.all_depth = torch.cat(self.all_depth, 0)  # (len(self.meta['frames])*h*w, 3)
         else:
-            self.all_rays = torch.stack(self.all_rays[:100], 0)  # (len(self.meta['frames]),h*w, 3)
-            self.all_rgbs = torch.stack(self.all_rgbs[:100], 0).reshape(-1,*self.img_wh[::-1], 3)  # (len(self.meta['frames]),h,w,3)
+            self.all_rays = torch.stack(self.all_rays[:400], 0)  # (len(self.meta['frames]),h*w, 3)
+            self.all_rgbs = torch.stack(self.all_rgbs[:400], 0).reshape(-1,*self.img_wh[::-1], 3)  # (len(self.meta['frames]),h,w,3)
             # self.all_masks = torch.stack(self.all_masks, 0).reshape(-1,*self.img_wh[::-1])  # (len(self.meta['frames]),h,w,3)
-            self.all_times = torch.stack(self.all_times[:100], 0)
+            self.all_times = torch.stack(self.all_times[:400], 0)
 
-        self.all_times = (self.all_times * 2.0 - 1.0) * (-1)
+        self.all_times = (self.all_times / self.all_times.max() * 2.0 - 1.0)
 
 
     def define_transforms(self):
@@ -215,7 +215,7 @@ class YourOwnDataset(Dataset):
         render_poses = torch.stack(
             [
                 pose_spherical(angle, 0.0, 0.0)
-                for angle in np.linspace(95, 95, 40 + 1)[:-1]
+                for angle in np.linspace(95, 95, 400 + 1)[:-1]
             ],
             0,
         )
@@ -227,6 +227,7 @@ class YourOwnDataset(Dataset):
         Get validation rays and times (NeRF-like rotating cameras poses).
         """
         val_poses, val_times = self.get_val_pose()  # get valitdation poses and times
+        # val_poses = torch.Tensor([[0.0, 0.0, -1.0, 0.0], [1.0, 0.0, 0.0, 0.0], [0.0, -1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]]).unsqueeze(0).repeat(400, 1, 1)
         rays_all = []  # initialize list to store [rays_o, rays_d]
 
         for i in range(val_poses.shape[0]):
@@ -334,3 +335,18 @@ class YourOwnDataset(Dataset):
         xyz_min -= xyz_shift
         xyz_max += xyz_shift
         return xyz_min, xyz_max
+    
+    def parse_list(self, filepath, skiprows=0):
+        """ read list data """
+        data = np.loadtxt(filepath, delimiter=' ',
+                          dtype=np.unicode_, skiprows=skiprows)
+        return data
+    
+    def pose_matrix_from_quaternion(self, pvec):
+        """ convert 4x4 pose matrix to (t, q) """
+        from scipy.spatial.transform import Rotation
+
+        pose = np.eye(4)
+        pose[:3, :3] = Rotation.from_quat(pvec[3:]).as_matrix()
+        pose[:3, 3] = pvec[:3]
+        return pose
