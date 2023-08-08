@@ -3,7 +3,7 @@ from .neural_3D_dataset_NDC import Neural3D_NDC_Dataset
 from .tumrgbd_dataset import TUMRgbdDataset
 from .tumrgbd_dataset_slam import TUMRgbdSlamDataset
 
-def get_train_dataset(cfg, is_stack=False, images=[], poses=[], timestamps=[], intrinsics=[]):
+def get_train_dataset(cfg, is_stack=False, images=[], depths=[], poses=[], timestamps=[], intrinsics=[]):
     if cfg.data.dataset_name == "dnerf":
         train_dataset = DNerfDataset(
             cfg.data.datadir,
@@ -70,6 +70,7 @@ def get_train_dataset(cfg, is_stack=False, images=[], poses=[], timestamps=[], i
             eval_index=cfg.data.nv3d_ndc_eval_index,
             sphere_scale=cfg.data.nv3d_ndc_sphere_scale,
             images=images,
+            depths=depths,
             poses=poses,
             timestamps=timestamps,
             intrinsics=intrinsics
@@ -79,7 +80,7 @@ def get_train_dataset(cfg, is_stack=False, images=[], poses=[], timestamps=[], i
     return train_dataset
 
 
-def get_test_dataset(cfg, is_stack=True, images=[], poses=[], timestamps=[], intrinsics=[]):
+def get_test_dataset(cfg, is_stack=True, images=[], depths=[], poses=[], timestamps=[], intrinsics=[]):
     if cfg.data.dataset_name == "dnerf":
         test_dataset = DNerfDataset(
             cfg.data.datadir,
@@ -146,6 +147,7 @@ def get_test_dataset(cfg, is_stack=True, images=[], poses=[], timestamps=[], int
             eval_index=cfg.data.nv3d_ndc_eval_index,
             sphere_scale=cfg.data.nv3d_ndc_sphere_scale,
             images=images,
+            depths=depths,
             poses=poses,
             timestamps=timestamps,
             intrinsics=intrinsics

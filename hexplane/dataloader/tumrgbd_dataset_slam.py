@@ -250,19 +250,17 @@ class TUMRgbdSlamDataset(Dataset):
         self.eval_index = eval_index
         self.blender2opencv = np.eye(4)
 
-        self.poses = None
-        self.depths = None
-        self.images = None
         self.image_stride = None
         self.time_number = None
         self.all_rgbs = None
         self.all_times = None
         self.all_rays = None
+        self.all_depths = None
         self.global_mean_rgb = None
 
         # TODO: CHECK NEAR AND FAR VALUES
         self.near = 0.0
-        self.far = 9.88 # TODO: THIS IS PROBABLY 9.9, TRY TO FIND IT
+        self.far = 1.0 # TODO: THIS IS PROBABLY 9.9, TRY TO FIND IT
         # self.far = 80
         self.near_far = np.array([self.near, self.far])  # NDC near far is [0, 1.0]
         self.frame_rate = 32
@@ -270,7 +268,6 @@ class TUMRgbdSlamDataset(Dataset):
         self.ndc_ray = True
         self.transform = T.ToTensor()
         self.png_depth_scale = 6553.5
-        self.depth_data = False
 
         self.transform = T.ToTensor()
 
@@ -296,7 +293,6 @@ class TUMRgbdSlamDataset(Dataset):
 
         self.ndc_ray = False
         self.depth_data = True
-        self.depth_data = False
 
         self.N_random_pose = N_random_pose
         self.center = torch.mean(self.scene_bbox, dim=0).float().view(1, 1, 3)
@@ -320,20 +316,13 @@ class TUMRgbdSlamDataset(Dataset):
             
             if self.downsample != 1.0:
                 image = image.resize(self.img_wh, Image.LANCZOS)
-                
+            
             image = self.transform(image)
-            #image_opencv = cv2.imread(img_path)
             image = image.view(3, -1).permute(1, 0)  # (h*w, 3) RGBA
-            # depth = cv2.imread(self.depths[k], cv2.IMREAD_UNCHANGED)
-            # depth = depth[:, :, np.newaxis].astype(np.int32) # Pytorch cannot handle uint16
             images += [image]
-            # depths  += [depth]
             del image
-            # del depth
-
         return images
 
-    
     
     def get_depth_data_packet(self, k0, k1=None):
         if k1 is None:
@@ -341,6 +330,8 @@ class TUMRgbdSlamDataset(Dataset):
         else:
             assert (k1 >= k0)
         depths = []
+        max = 7.5303
+        min = 0.0
         for k in np.arange(k0, k1):
             depth_path = self.depths[k]
             if '.png' in depth_path:
@@ -354,6 +345,7 @@ class TUMRgbdSlamDataset(Dataset):
             depth = self.transform(depth)
             depth = depth / self.png_depth_scale   
             
+            cur_depth = (cur_depth-min) / (max - min)
             depth = depth.view(1, -1).permute(1, 0)
             
             depths += [depth]    
@@ -407,11 +399,15 @@ class TUMRgbdSlamDataset(Dataset):
         print("compute_bbox_by_cam_frustrm: start")
         xyz_min = torch.Tensor([np.inf, np.inf, np.inf])
         xyz_max = -xyz_min
-        rays_o = self.all_rays[:, 0:3]
-        viewdirs = self.all_rays[:, 3:6]
+        if self.split=='test' or self.cfg.data.datasampler_type=="hierach":
+            rays_o = self.all_rays.reshape(self.all_rays.shape[0]*self.all_rays.shape[1],self.all_rays.shape[2])[:,0:3]
+            viewdirs = self.all_rays.reshape(self.all_rays.shape[0]*self.all_rays.shape[1],self.all_rays.shape[2])[:,3:6]
+        else:
+            rays_o = self.all_rays[:, 0:3]
+            viewdirs = self.all_rays[:, 3:6]
         pts_nf = torch.stack(
-            [rays_o + viewdirs * self.near, rays_o + viewdirs * self.far])
-
+            [rays_o + viewdirs * self.near, rays_o + viewdirs * self.far]
+        )
         xyz_min = torch.minimum(xyz_min, pts_nf.amin((0, 1)))
         xyz_max = torch.maximum(xyz_max, pts_nf.amax((0, 1)))
         print("compute_bbox_by_cam_frustrm: xyz_min", xyz_min)

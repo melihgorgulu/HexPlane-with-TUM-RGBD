@@ -7,7 +7,7 @@ model:
   N_voxel_init: 262144
   # TODO: Adjust these values
   time_grid_init: 16 # int(685*0.24)*0.5 - > 685 is frame rate
-  time_grid_final: 24 # TODO: try different params
+  time_grid_final: 100 # TODO: try different params
   upsampling_type: unaligned
   upsample_list: [3000, 6000, 9000]
   update_emptymask_list: [4000, 8000, 10000]
@@ -23,8 +23,10 @@ model:
 data:
   datadir: "./data/rgbd_dataset_freiburg3_sitting_static"
   dataset_name: tum_rgbd_slam
-  scene_bbox_min: [-1.9219, -1.4237, -1.0000]
-  scene_bbox_max: [1.6996,  1.6841, 18.7600]
+  scene_bbox_min: [0.0, 0.0, 0.0]
+  scene_bbox_max: [1.0, 1.0, 1.0]
+  #scene_bbox_min: [-1.9219, -1.4237, -1.0000]
+  #scene_bbox_max: [1.6996,  1.6841, 18.7600]
   N_vis: 5
 
   datasampler_type: rays
