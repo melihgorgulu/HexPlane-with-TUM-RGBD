@@ -5,13 +5,13 @@ systems:
 model:
   # model_name: "HexPlane"
   N_voxel_init: 262144
-  time_grid_init: 100 # according to github, this should be set to 0.25 * frame_number
-  time_grid_final: 400 # according to github, this should be set to frame_number
+  time_grid_init: 25 # according to github, this should be set to 0.25 * frame_number
+  time_grid_final: 100 # according to github, this should be set to frame_number
   upsampling_type: aligned
-  # upsample_list: [3000, 6000, 9000]
-  # update_emptymask_list: [4000, 8000, 10000]
-  upsample_list: [300, 500, 700]
-  update_emptymask_list: [200, 400, 600, 800]
+  upsample_list: [3000, 5000, 7000]
+  update_emptymask_list: [2000, 4000, 6000, 8000]
+  # upsample_list: [300, 500, 700]
+  # update_emptymask_list: [200, 400, 600, 800]
   # fusion_one: "multiply"
   # fusion_two: "multiply"
   # init_scale: 0.9
@@ -59,7 +59,7 @@ data:
   cal_fine_bbox: True
 
 optim:
-  n_iters: 2000
+  n_iters: 20000
 
 render_test: False
 render_path: True

@@ -1,7 +1,7 @@
 systems:
   basedir: ".logs/"
-  vis_every: 10000
-  # ckpt: "/home/nico/HexPlane-with-TUM-RGBD/.logs/tum_rgbd-20230806-174023/tum_rgbd.th"
+  vis_every: 1000
+  # ckpt: "/home/nico/HexPlane-with-TUM-RGBD/.logs/tum_rgbd-20230807-082932/tum_rgbd.th"
 
 model:
   # model_name: "HexPlane"
@@ -10,27 +10,27 @@ model:
   time_grid_final: 100 # according to github, this should be set to frame_number
   upsampling_type: aligned
 
-  upsample_list: [30000, 50000, 70000]
-  update_emptymask_list: [20000, 40000, 60000, 80000]
+  upsample_list: [3000, 5000, 7000]
+  update_emptymask_list: [2000, 4000, 6000, 8000]
 
-  depth_loss: True
-  depth_loss_weight: 0.1
+  # depth_loss: False
+  # depth_loss_weight: 0.01
 
   density_n_comp: [24, 12, 12]
   app_n_comp: [48, 24, 24]
   fea2denseAct: relu
 
-  TV_t_s_ratio: 500
+  # TV_t_s_ratio: 500
 
   TV_weight_density: 0.005
   TV_weight_app: 0.0005
 
-  density_t_pe: 2
-  density_pos_pe: 2
-  density_view_pe: 2
+  # density_t_pe: 2
+  # density_pos_pe: 2
+  # density_view_pe: 2
 
-  app_t_pe: 2
-  app_pos_pe: 2
+  # app_t_pe: 2
+  # app_pos_pe: 2
 
 data:
   # datadir: ""
@@ -47,9 +47,9 @@ data:
   cal_fine_bbox: True
 
 optim:
-  n_iters: 200000
+  n_iters: 20000
 
-render_test: True
+render_test: False
 render_path: True
 expname: tum_rgbd
 # render_only: True

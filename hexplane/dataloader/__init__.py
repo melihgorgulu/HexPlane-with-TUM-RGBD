@@ -2,7 +2,8 @@ from .dnerf_dataset import DNerfDataset
 from .neural_3D_dataset_NDC import Neural3D_NDC_Dataset
 from .tumrgbd_dataset import TUMRgbdDataset
 from .colmap_dataset import ColmapDataset
-from .your_own_data import YourOwnDataset
+# from .your_own_data import YourOwnDataset
+from .droid_slam_data import YourOwnDataset
 
 def get_train_dataset(cfg, is_stack=False):
     if cfg.data.dataset_name == "dnerf":
