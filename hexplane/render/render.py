@@ -107,8 +107,8 @@ def evaluation(
         )
 
         depth_map, _ = visualize_depth_numpy(depth_map.numpy(), near_far)
-        if "depth" in data.keys():
-            depth = data["depth"]
+        if "depths" in data.keys():
+            depth = data["depths"]
             gt_depth, _ = visualize_depth_numpy(depth.numpy(), near_far)
 
         if len(test_dataset):
@@ -228,6 +228,7 @@ def evaluation_path(
     val_rays, val_times = test_dataset.get_val_rays()
 
     for idx in tqdm(range(val_times.shape[0])):
+        torch.cuda.empty_cache()
         W, H = test_dataset.img_wh
         rays = val_rays[idx]
         time = val_times[idx]
@@ -236,7 +237,7 @@ def evaluation_path(
             rays,
             time,
             model,
-            chunk=8192,
+            chunk=4096,
             N_samples=N_samples,
             ndc_ray=ndc_ray,
             white_bg=white_bg,

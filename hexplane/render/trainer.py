@@ -377,8 +377,21 @@ class Trainer:
 
             # Loss on the rendered and gt depth maps.
             if self.cfg.model.depth_loss and self.cfg.model.depth_loss_weight > 0:
-                depth_loss = (depth_map.unsqueeze(-1) - depth) ** 2
                 mask = depth != 0
+
+                t_d = torch.median(depth_map)
+                s_d = torch.mean(torch.abs(depth_map - t_d))
+                dyn_depth_norm = (depth_map - t_d) / (s_d + 1e-10)
+
+                t_gt = torch.median(depth[mask])
+                s_gt = torch.mean(torch.abs(depth[mask] - t_gt))
+                gt_depth_norm = (depth - t_gt) / (s_gt + 1e-10)
+
+                # dyn_depth_norm = (depth_map - depth_map.min()) / (depth_map.max() - depth_map.min())
+                # gt_depth_norm = (depth - depth.min()) / (depth.max() - depth.min())
+
+                depth_loss = (dyn_depth_norm - gt_depth_norm) ** 2
+                # depth_loss = (depth_map - depth) ** 2
                 depth_loss = (
                     torch.mean(depth_loss[mask]) * self.cfg.model.depth_loss_weight
                 )

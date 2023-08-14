@@ -3,7 +3,8 @@ from .neural_3D_dataset_NDC import Neural3D_NDC_Dataset
 from .tumrgbd_dataset import TUMRgbdDataset
 from .colmap_dataset import ColmapDataset
 # from .your_own_data import YourOwnDataset
-from .droid_slam_data import YourOwnDataset
+from .droid_slam_data_midas import YourOwnDataset
+from .iphone_data import iPhoneDataset
 
 def get_train_dataset(cfg, is_stack=False):
     if cfg.data.dataset_name == "dnerf":
@@ -64,6 +65,14 @@ def get_train_dataset(cfg, is_stack=False):
         )
     elif cfg.data.dataset_name == "own_data":
         train_dataset = YourOwnDataset(
+            cfg.data.datadir,
+            "train",
+            cfg.data.downsample,
+            is_stack=is_stack,
+            N_vis=cfg.data.N_vis
+        )
+    elif cfg.data.dataset_name == "iphone":
+        train_dataset = iPhoneDataset(
             cfg.data.datadir,
             "train",
             cfg.data.downsample,
@@ -134,6 +143,14 @@ def get_test_dataset(cfg, is_stack=True):
         )
     elif cfg.data.dataset_name == "own_data":
         test_dataset = YourOwnDataset(
+            cfg.data.datadir,
+            "test",
+            cfg.data.downsample,
+            is_stack=is_stack,
+            N_vis=cfg.data.N_vis,
+        )
+    elif cfg.data.dataset_name == "iphone":
+        test_dataset = iPhoneDataset(
             cfg.data.datadir,
             "test",
             cfg.data.downsample,
