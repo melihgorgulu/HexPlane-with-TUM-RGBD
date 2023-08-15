@@ -11,6 +11,8 @@ from datetime import datetime
 from PIL import Image
 from .ray_utils import get_ray_directions_blender, get_rays, ndc_rays_blender_tum
 
+
+
 def readEXR_onlydepth(filename):
     """
     Read depth data from EXR image file.
@@ -44,6 +46,7 @@ def readEXR_onlydepth(filename):
     Y = None if 'Y' not in header['channels'] else channelData['Y']
 
     return Y
+
 
 def get_spiral(c2ws_all, near_fars, rads_scale=1.0, N_views=120):
     """
@@ -208,7 +211,7 @@ def render_path_spiral(c2w, up, rads, focal, zdelta, zrate, N_rots=2, N=120):
     return render_poses
 
 
-class TUMRgbdDataset(Dataset):
+class TUMRgbdSlamDataset(Dataset):
     def __init__(
             self,
             datadir,
@@ -225,9 +228,14 @@ class TUMRgbdDataset(Dataset):
             eval_step=1,
             eval_index=0,
             sphere_scale=1.0,
+            images=[],
+            poses=[],
+            depths=[],
+            timestamps=[],
+            intrinsics=[]
     ):
-        self.img_wh = (int(640 / downsample), int(480 / downsample))  # 640x480
-        self.root_dir = datadir
+        # self.img_wh = (int(640 / downsample), int(480 / downsample))  # 640x480
+        # self.root_dir = datadir
         self.split = split
         self.downsample = downsample
 
@@ -241,35 +249,37 @@ class TUMRgbdDataset(Dataset):
         self.eval_step = eval_step
         self.eval_index = eval_index
         self.blender2opencv = np.eye(4)
-        self.png_depth_scale = 6553.5
 
-        self.poses = None
-        self.depths = None
-        self.images = None
         self.image_stride = None
         self.time_number = None
         self.all_rgbs = None
         self.all_times = None
         self.all_rays = None
+        self.all_depths = None
         self.global_mean_rgb = None
 
         # TODO: CHECK NEAR AND FAR VALUES
         self.near = 0.0
-        self.far = 9.88 # TODO: THIS IS PROBABLY 9.9, TRY TO FIND IT
+        self.far = 1.0 # TODO: THIS IS PROBABLY 9.9, TRY TO FIND IT
+        # self.far = 80
         self.near_far = np.array([self.near, self.far])  # NDC near far is [0, 1.0]
         self.frame_rate = 32
         self.white_bg = False
         self.ndc_ray = True
-        self.depth_data = True
+        self.transform = T.ToTensor()
+        self.png_depth_scale = 6553.5
 
         self.transform = T.ToTensor()
 
-        fx = 535.4 / downsample
-        fy = 539.2 / downsample
-        self.focal = [fx, fy]
-        cx = 320.1
-        cy = 247.6
-        self.opt_centers = [cx, cy]
+        self.intrinsics = intrinsics
+        self.focal = [intrinsics[0, 0], intrinsics[1, 1]]
+        self.opt_centers = [intrinsics[0, 2], intrinsics[1, 2]]
+
+        self.images = images
+        self.poses = poses
+        self.depths = depths
+
+        self.timestamps = timestamps
 
         self.load_meta()
         print("____ Meta data is successfully loaded ! ____")
@@ -306,18 +316,13 @@ class TUMRgbdDataset(Dataset):
             
             if self.downsample != 1.0:
                 image = image.resize(self.img_wh, Image.LANCZOS)
-                
+            
             image = self.transform(image)
-            #image_opencv = cv2.imread(img_path)
             image = image.view(3, -1).permute(1, 0)  # (h*w, 3) RGBA
-            # depth = cv2.imread(self.depths[k], cv2.IMREAD_UNCHANGED)
-            # depth = depth[:, :, np.newaxis].astype(np.int32) # Pytorch cannot handle uint16
             images += [image]
-            # depths  += [depth]
             del image
-            # del depth
-
         return images
+
     
     def get_depth_data_packet(self, k0, k1=None):
         if k1 is None:
@@ -325,6 +330,8 @@ class TUMRgbdDataset(Dataset):
         else:
             assert (k1 >= k0)
         depths = []
+        max = 7.5303
+        min = 0.0
         for k in np.arange(k0, k1):
             depth_path = self.depths[k]
             if '.png' in depth_path:
@@ -338,12 +345,12 @@ class TUMRgbdDataset(Dataset):
             depth = self.transform(depth)
             depth = depth / self.png_depth_scale   
             
+            cur_depth = (cur_depth-min) / (max - min)
             depth = depth.view(1, -1).permute(1, 0)
             
             depths += [depth]    
             del depth
-        return depths    
-            
+        return depths   
 
     def __len__(self):
         #if self.split == "train" and self.is_stack is True:
@@ -367,54 +374,6 @@ class TUMRgbdDataset(Dataset):
             time = self.all_times[idx]
             sample = {"rays": rays, "rgbs": img, "depths": depths, "time": time}
         return sample
-        """
-        if self.split == "train":  # use data in the buffers
-            if self.is_stack:
-                cam_idx = idx // self.time_number
-                time_idx = idx % self.time_number
-                sample = {
-                    "rays": self.all_rays[cam_idx],
-                    "rgbs": self.all_rgbs[cam_idx, time_idx],
-                    "time": self.all_times[time_idx]
-                            * torch.ones_like(self.all_rays[cam_idx][:, 0:1]),
-                }
-
-            else:
-                sample = {
-                    "rays": self.all_rays[
-                        idx // (self.time_number * self.image_stride),
-                        idx % self.image_stride,
-                    ],
-                    "rgbs": self.all_rgbs[idx],
-                    "time": self.all_times[
-                                idx // (self.time_number * self.image_stride),
-                                idx
-                                % (self.time_number * self.image_stride)
-                                // self.image_stride,
-                            ]
-                            * torch.ones_like(self.all_rgbs[idx][:, 0:1]),
-                }
-
-        else:  # create data for each image separately
-            if self.is_stack:
-                sample = {
-                    "rays": self.all_rays,
-                    "rgbs": self.all_rgbs[idx],
-                    "time": self.all_times[idx]
-                            * torch.ones_like(self.all_rays[:, 0:1]),
-                }
-
-            else:
-                sample = {
-                    "rays": self.all_rays[idx % self.image_stride],
-                    "rgbs": self.all_rgbs[idx],
-                    "time": self.all_times[idx // self.image_stride]
-                            * torch.ones_like(self.all_rays[:, 0:1]),
-                }
-
-        return sample
-
-        """
 
     def init_random_pose(self):
         # Randomly sample N_random_pose radius, phi, theta and times.
@@ -440,8 +399,12 @@ class TUMRgbdDataset(Dataset):
         print("compute_bbox_by_cam_frustrm: start")
         xyz_min = torch.Tensor([np.inf, np.inf, np.inf])
         xyz_max = -xyz_min
-        rays_o = self.all_rays[:, 0:3]
-        viewdirs = self.all_rays[:, 3:6]
+        if self.split=='test' or self.cfg.data.datasampler_type=="hierach":
+            rays_o = self.all_rays.reshape(self.all_rays.shape[0]*self.all_rays.shape[1],self.all_rays.shape[2])[:,0:3]
+            viewdirs = self.all_rays.reshape(self.all_rays.shape[0]*self.all_rays.shape[1],self.all_rays.shape[2])[:,3:6]
+        else:
+            rays_o = self.all_rays[:, 0:3]
+            viewdirs = self.all_rays[:, 3:6]
         pts_nf = torch.stack(
             [rays_o + viewdirs * self.near, rays_o + viewdirs * self.far]
         )
@@ -455,108 +418,15 @@ class TUMRgbdDataset(Dataset):
         xyz_max += xyz_shift
         return xyz_min, xyz_max
 
-    def parse_list(self, filepath, skiprows=0):
-        """ read list data """
-        data = np.loadtxt(filepath, delimiter=' ',
-                          dtype=np.unicode_, skiprows=skiprows)
-        return data
-
-    def pose_matrix_from_quaternion(self, pvec):
-        """ convert 4x4 pose matrix to (t, q) """
-        from scipy.spatial.transform import Rotation
-
-        pose = np.eye(4)
-        pose[:3, :3] = Rotation.from_quat(pvec[3:]).as_matrix()
-        pose[:3, 3] = pvec[:3]
-        return pose
-
-    def associate_frames(self, tstamp_image, tstamp_depth, tstamp_pose, max_dt=0.08):
-        """ pair images, depths, and poses """
-        associations = []
-        for i, t in enumerate(tstamp_image):
-            if tstamp_pose is None:
-                j = np.argmin(np.abs(tstamp_depth - t))
-                if np.abs(tstamp_depth[j] - t) < max_dt:
-                    associations.append((i, j))
-            else:
-                j = np.argmin(np.abs(tstamp_depth - t))
-                k = np.argmin(np.abs(tstamp_pose - t))
-
-                if (np.abs(tstamp_depth[j] - t) < max_dt) and \
-                        (np.abs(tstamp_pose[k] - t) < max_dt):
-                    associations.append((i, j, k))
-
-        return associations
-
-    def parse_dataset(self, datapath, frame_rate=-1):
-        """ read video data in tum-rgbd format """
-        if os.path.isfile(os.path.join(datapath, 'groundtruth.txt')):
-            pose_list = os.path.join(datapath, 'groundtruth.txt')
-        elif os.path.isfile(os.path.join(datapath, 'pose.txt')):
-            pose_list = os.path.join(datapath, 'pose.txt')
-
-        image_list = os.path.join(datapath, 'rgb.txt')
-        depth_list = os.path.join(datapath, 'depth.txt')
-
-        # parse data
-        image_data = self.parse_list(image_list)
-        depth_data = self.parse_list(depth_list)
-        pose_data = self.parse_list(pose_list, skiprows=1)
-        pose_vecs = pose_data[:, 1:].astype(np.float64)
-
-        # associate dept rgb and ground truth data
-        tstamp_image = image_data[:, 0].astype(np.float64)
-        tstamp_depth = depth_data[:, 0].astype(np.float64)
-        tstamp_pose = pose_data[:, 0].astype(np.float64)
-        associations = self.associate_frames(
-            tstamp_image, tstamp_depth, tstamp_pose)  # (image, depth, pose) pairs
-
-        indicies = [0]
-        for i in range(1, len(associations)):
-            t0 = tstamp_image[associations[indicies[-1]][0]]  # take association index for image and then get timestamp
-            t1 = tstamp_image[associations[i][0]]
-            if t1 - t0 > 1.0 / frame_rate:
-                indicies += [i]
-
-        images, poses, depths = [], [], []
-        inv_pose = None
-        # get valid pairs
-        tstamp_out = []
-        for ix in indicies:
-            (i, j, k) = associations[ix]  # image idx, depth idx, pose idx
-            images += [os.path.join(datapath, image_data[i, 1])]
-            depths += [os.path.join(datapath, depth_data[j, 1])]
-            # get camera extrinsics matrix.
-            # represents tranformation of the camera in 3D space
-
-            c2w = self.pose_matrix_from_quaternion(pose_vecs[k])
-            # inv pose: The inverse of a camera's extrinsic matrix, also known as the camera's pose matrix,
-            # represents the transformation that maps points from the camera's coordinate system to the world coordinate system.
-            # if inv_pose is None:
-            #    inv_pose = np.linalg.inv(c2w)
-            #    c2w = np.eye(4)
-            # else:
-            #    c2w = inv_pose @ c2w
-            # c2w[:3, 1] *= -1
-            # c2w[:3, 2] *= -1
-            # c2w = torch.from_numpy(c2w).float()
-            c2w = c2w[0:3, :]
-            poses += [c2w]
-            tstamp_out.append(tstamp_image[ix])
-
-        return images, poses, depths, tstamp_out
-
     def load_meta(self):
         # read poses and video file paths
-        self.images, self.poses, self.depths, t_stamps = self.parse_dataset(self.root_dir, frame_rate=self.frame_rate)
-        
-        assert len(self.images) == len(self.poses)
-        assert len(self.images) == len(t_stamps)
+        assert len(self.images) == self.poses.shape[0]
+        assert len(self.images) == len(self.timestamps)
 
-        W, H = self.img_wh
+        H, W = cv2.imread(self.images[0]).shape[0:2]
+        self.img_wh = (W, H)
+
         # recenter poses
-        if type(self.poses) == list:
-            self.poses = np.array(self.poses)
         self.poses, pose_avg = center_poses(self.poses, self.blender2opencv)
 
         #  # Sample N_views poses for validation - NeRF-like camera trajectory.
@@ -566,21 +436,15 @@ class TUMRgbdDataset(Dataset):
         # TODO: try to use only get_ray_directions in here
         self.directions = get_ray_directions_blender(H, W, self.focal)
 
-        # TODO: Try line below (normalizing)
-        # self.directions = self.directions / torch.norm(self.directions, dim=-1, keepdim=True)
-        self.intrinsics = torch.tensor([[self.focal[0], 0, self.opt_centers[0]],
-                                        [0, self.focal[1], self.opt_centers[1]],
-                                        [0, 0, 1]]).float()
-
         """
         self.colorpaths: List[str] -> contains rgb image paths
-        self.poses: List[torch.Tensor] with shape [3,4] -> pose values for the corresponding timestamp
+        self.poses: List[torch.Tensor] with shape [4,4] -> pose values for the corresponding timestamp
         self.t_stamps: List[TimeStamps] -> List of timestamps for the corresponding frame
         """
         all_rays = []
         all_times = []
-        frame_count = len(t_stamps)
-        for idx in range(0, len(t_stamps)):
+        frame_count = len(self.timestamps)
+        for idx in range(0, len(self.timestamps)):
             rays_o, rays_d = get_rays(self.directions,
                                       torch.FloatTensor(self.poses[idx]))  # both (h*w, 3)
             rays_o, rays_d = ndc_rays_blender_tum(H, W, self.focal, 1.0, rays_o, rays_d)
@@ -592,11 +456,10 @@ class TUMRgbdDataset(Dataset):
 
         all_rgbs = self._get_data_packet(0, len(self.images))
         all_depths = self.get_depth_data_packet(0, len(self.depths))
-        # TODO: In tum rgbd case, number of cam is 1. make sure to add it to the dataloader.
         N_cam, N_rays, C = torch.stack(all_rgbs).shape
-        # breakpoint()
-        # TODO: Try time scale
+
         # all_times = torch.from_numpy(np.array(t_stamps))
+
         if not self.is_stack:
             print("Catting ...")
             all_rays = torch.cat(all_rays, 0)
@@ -607,7 +470,7 @@ class TUMRgbdDataset(Dataset):
         else:
             print("Stacking ...")
             all_rays = torch.stack(all_rays, 0)
-            all_rgbs = torch.stack(all_rgbs, 0).reshape(-1, *self.img_wh[::-1], 3)
+            all_rgbs = torch.cat(all_rgbs, 0).reshape(-1, *self.img_wh[::-1], 3)
             all_depths = torch.stack(all_depths, 0).reshape(-1, *self.img_wh[::-1], 1)
             all_times = torch.stack(all_times, 0)
             print("Stack performed !!")
@@ -617,8 +480,8 @@ class TUMRgbdDataset(Dataset):
         self.image_stride = N_rays
         self.time_number = N_cam
         self.all_rgbs = all_rgbs
-        self.all_depths = all_depths
         self.all_times = all_times
+        self.all_depths = all_depths
         # self.all_rays = all_rays.reshape(N_cam, N_rays, 6)
         self.all_rays = all_rays
         self.global_mean_rgb = torch.mean(all_rgbs, dim=1)
@@ -628,7 +491,7 @@ class TUMRgbdDataset(Dataset):
         print(f"'All rays': type->{type(self.all_rays)}, shape->{self.all_rays.shape}, datatype->{self.all_rays.dtype}")
         print(f"'All depths': type->{type(self.all_depths)}, shape->{self.all_depths.shape}, datatype->{self.all_depths.dtype}")
         print(f"'All times': type->{type(self.all_times)}, shape->{self.all_times.shape}, datatype->{self.all_times.dtype}")
-    
+
 
     def get_val_pose(self):
         render_poses = self.val_poses

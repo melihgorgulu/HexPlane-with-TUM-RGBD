@@ -6,8 +6,8 @@ import torch
 from pytorch_msssim import ms_ssim as MS_SSIM
 from tqdm.auto import tqdm
 
-from hexplane.render.util.metric import rgb_lpips, rgb_ssim
-from hexplane.render.util.util import visualize_depth_numpy
+from HexPlane.hexplane.render.util.metric import rgb_lpips, rgb_ssim
+from HexPlane.hexplane.render.util.util import visualize_depth_numpy
 
 
 def OctreeRender_trilinear_fast(
