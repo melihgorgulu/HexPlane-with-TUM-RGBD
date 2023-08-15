@@ -1,5 +1,5 @@
 import numpy as np
-import scipy
+from scipy import signal
 import torch
 
 __LPIPS__ = {}
@@ -45,7 +45,7 @@ def rgb_ssim(
 
     # Blur in x and y (faster than the 2D convolution).
     def convolve2d(z, f):
-        return scipy.signal.convolve2d(z, f, mode="valid")
+        return signal.convolve2d(z, f, mode="valid")
 
     filt_fn = lambda z: np.stack(
         [
