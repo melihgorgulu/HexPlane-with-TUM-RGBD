@@ -120,9 +120,6 @@ class Data_Config:
 
     datasampler_type: str = "rays"  # choose from "rays", "images", "hierach"
 
-    depth_loss: bool = True
-    depth_loss_weight: float = 1.0
-
 
 @dataclass
 class Optim_Config:
