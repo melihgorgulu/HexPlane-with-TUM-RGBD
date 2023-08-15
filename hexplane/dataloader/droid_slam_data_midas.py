@@ -78,7 +78,7 @@ class YourOwnDataset(Dataset):
         self.far = self.near_far[1]
         self.world_bound_scale = 1.1
 
-        cal_fine_bbox = False
+        cal_fine_bbox = True
         if cal_fine_bbox and split=="train":
             xyz_min, xyz_max = self.compute_bbox()
             self.scene_bbox = torch.stack((xyz_min, xyz_max), dim=0)
@@ -141,7 +141,7 @@ class YourOwnDataset(Dataset):
         idxs = list(range(0, len(image_data), img_eval_interval))
         for i in tqdm(idxs, desc=f'Loading data {self.split} ({len(idxs)})'):#img_list:#
 
-            c2w = torch.FloatTensor(poses[i]) @ self.blender2opencv
+            c2w = torch.FloatTensor(poses[i])
             self.poses += [c2w]
 
             image_path = os.path.join(self.root_dir, image_data[i, 1])
@@ -198,7 +198,7 @@ class YourOwnDataset(Dataset):
         self.all_rays = torch.stack(self.all_rays, 0)[200:700]
         self.all_rgbs = torch.stack(self.all_rgbs, 0)[200:700]
         self.all_depths = torch.stack(self.all_depths, 0)[200:700]
-        self.all_depths = (self.all_depths - self.all_depths.min()) / (self.all_depths.max() - self.all_depths.min())
+        # self.all_depths = (self.all_depths - self.all_depths.min()) / (self.all_depths.max() - self.all_depths.min())
         # self.all_depths /= self.all_depths.max()
         # mask = self.all_depths != 0
         # self.all_depths = (self.all_depths - self.all_depths[mask].min()) / (self.all_depths[mask].max() - self.all_depths[mask].min())
@@ -272,7 +272,7 @@ class YourOwnDataset(Dataset):
         render_poses = torch.stack(
             [
                 pose_spherical(angle, 0.0, 0.0)
-                for angle in np.linspace(60, 100, 400 + 1)[:-1]
+                for angle in np.linspace(60, 100, 500 + 1)[:-1]
             ],
             0,
         )
