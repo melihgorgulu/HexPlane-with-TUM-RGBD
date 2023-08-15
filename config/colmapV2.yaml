@@ -1,12 +1,13 @@
 systems:
   basedir: ".logs/"
   vis_every: 1000
+  # ckpt: "/home/nico/HexPlane-with-TUM-RGBD/.logs/tum_rgbd-20230808-133138/tum_rgbd.th"
 
 model:
   # model_name: "HexPlane"
   N_voxel_init: 262144
-  time_grid_init: 25 # according to github, this should be set to 0.25 * frame_number
-  time_grid_final: 100 # according to github, this should be set to frame_number
+  time_grid_init: 150 # according to github, this should be set to 0.25 * frame_number
+  time_grid_final: 600 # according to github, this should be set to frame_number
   upsampling_type: aligned
   upsample_list: [3000, 5000, 7000]
   update_emptymask_list: [2000, 4000, 6000, 8000]
@@ -26,7 +27,7 @@ model:
   app_n_comp: [48, 24, 24]
   fea2denseAct: relu
 
-  # TV_t_s_ratio: 300
+  TV_t_s_ratio: 100
 
   TV_weight_density: 0.005
   TV_weight_app: 0.0005
@@ -60,7 +61,9 @@ data:
 
 optim:
   n_iters: 20000
+  batch_size: 4096
 
-render_test: False
+# render_only: True
+render_test: True
 render_path: True
 expname: tum_rgbd

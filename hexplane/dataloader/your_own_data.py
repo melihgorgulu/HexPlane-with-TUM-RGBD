@@ -83,7 +83,7 @@ class YourOwnDataset(Dataset):
         self.downsample=downsample
 
         self.ndc_ray = False
-        self.depth_data = False
+        self.depth_data = True
 
     def read_depth(self, filename):
         depth = np.array(read_pfm(filename)[0], dtype=np.float32)  # (800, 800)
@@ -91,14 +91,35 @@ class YourOwnDataset(Dataset):
     
     def read_meta(self):
 
+        frame_rate = 32
+
         with open(os.path.join(self.root_dir, f"transforms.json"), 'r') as f:
             self.meta = json.load(f)
 
         w, h = int(self.meta['w']/self.downsample), int(self.meta['h']/self.downsample)
         self.img_wh = [w,h]
-        # self.focal_x = 0.5 * w / np.tan(0.5 * self.meta['camera_angle_x'])  # original focal length
-        # self.focal_y = 0.5 * h / np.tan(0.5 * self.meta['camera_angle_y'])  # original focal length
-        # self.cx, self.cy = self.meta['cx'],self.meta['cy']
+
+        self.root_dir2 = "/media/nico/Volume/rgbd_bonn_dataset/rgbd_bonn_moving_nonobstructing_box"
+
+        image_list = os.path.join(self.root_dir2, 'rgb.txt')
+        depth_list = os.path.join(self.root_dir2, 'depth.txt')
+
+        # parse data
+        image_data = self.parse_list(image_list)
+        depth_data = self.parse_list(depth_list)
+
+        # associate dept rgb and ground truth data
+        tstamp_image = image_data[:, 0].astype(np.float64)
+        tstamp_depth = depth_data[:, 0].astype(np.float64)
+        associations = self.associate_frames(
+            tstamp_image, tstamp_depth, tstamp_image)  # (image, depth, pose) pairs
+        
+        indicies = [0]
+        for i in range(1, len(associations)):
+            t0 = tstamp_image[associations[indicies[-1]][0]]  # take association index for image and then get timestamp
+            t1 = tstamp_image[associations[i][0]]
+            if t1 - t0 > 1.0 / frame_rate:
+                indicies += [i]
 
         self.focal_x = 542.822841
         self.focal_y = 542.576870
@@ -115,20 +136,20 @@ class YourOwnDataset(Dataset):
         self.all_rays = []
         self.all_rgbs = []
         self.all_masks = []
-        self.all_depth = []
         self.all_times = []
         timestamps = []
+        self.all_depths = []
 
-        img_eval_interval = 1 if self.N_vis < 0 else len(self.meta['frames']) // self.N_vis
-        idxs = list(range(0, len(self.meta['frames']), img_eval_interval))
-        for i in tqdm(idxs, desc=f'Loading data {self.split} ({len(idxs)})'):#img_list:#
+        for ix in tqdm(indicies, desc=f'Loading data {self.split} ({len(indicies)})'):#img_list:#
 
-            frame = self.meta['frames'][i]
+            (i, j, k) = associations[ix]
+
+            frame = self.meta['frames'][k]
             pose = np.array(frame['transform_matrix']) @ self.blender2opencv
             c2w = torch.FloatTensor(pose)
             self.poses += [c2w]
 
-            image_path = os.path.join(self.root_dir, f"{frame['file_path']}")
+            image_path = os.path.join(self.root_dir2, image_data[i, 1])
             self.image_paths += [image_path]
             img = Image.open(image_path)
             
@@ -140,6 +161,12 @@ class YourOwnDataset(Dataset):
                 img = img[:, :3] * img[:, -1:] + (1 - img[:, -1:])  # blend A to RGB
             self.all_rgbs += [img]
 
+            # load depth
+            depth = cv2.imread(os.path.join(self.root_dir2, depth_data[j, 1]), cv2.IMREAD_UNCHANGED)
+            depth = depth[:, :, np.newaxis].astype(np.int32) # Pytorch cannot handle uint16
+            depth = torch.from_numpy(depth) / 5000
+            depth = depth.view(1, -1).permute(1, 0)
+            self.all_depths += [depth]
 
             rays_o, rays_d = get_rays(self.directions, c2w)  # both (h*w, 3)
             self.all_rays += [torch.cat([rays_o, rays_d], 1)]  # (h*w, 6)
@@ -152,6 +179,7 @@ class YourOwnDataset(Dataset):
         self.poses = np.array(self.poses)[indices].tolist()
         self.all_rays = np.array(self.all_rays)[indices].tolist()
         self.all_rgbs = np.array(self.all_rgbs)[indices].tolist()
+        self.all_depths = np.array(self.all_depths)[indices].tolist()
         timestamps = np.array(timestamps)[indices]
         timestamps -= timestamps[0]
         timestamps /= timestamps[-1]
@@ -162,16 +190,17 @@ class YourOwnDataset(Dataset):
 
         self.poses = torch.stack(self.poses[:400])
         if not self.is_stack:
-            self.all_rays = torch.cat(self.all_rays[:400], 0)  # (len(self.meta['frames])*h*w, 3)
-            self.all_rgbs = torch.cat(self.all_rgbs[:400], 0)  # (len(self.meta['frames])*h*w, 3)
-            self.all_times = torch.cat(self.all_times[:400], 0)
+            self.all_rays = torch.cat(self.all_rays[:100], 0)  # (len(self.meta['frames])*h*w, 3)
+            self.all_rgbs = torch.cat(self.all_rgbs[:100], 0)  # (len(self.meta['frames])*h*w, 3)
+            self.all_times = torch.cat(self.all_times[:100], 0)
+            self.all_depths = torch.cat(self.all_depths[:100], 0)
 
-#             self.all_depth = torch.cat(self.all_depth, 0)  # (len(self.meta['frames])*h*w, 3)
         else:
-            self.all_rays = torch.stack(self.all_rays[:400], 0)  # (len(self.meta['frames]),h*w, 3)
-            self.all_rgbs = torch.stack(self.all_rgbs[:400], 0).reshape(-1,*self.img_wh[::-1], 3)  # (len(self.meta['frames]),h,w,3)
+            self.all_rays = torch.stack(self.all_rays[:100], 0)  # (len(self.meta['frames]),h*w, 3)
+            self.all_rgbs = torch.stack(self.all_rgbs[:100], 0).reshape(-1,*self.img_wh[::-1], 3)  # (len(self.meta['frames]),h,w,3)
             # self.all_masks = torch.stack(self.all_masks, 0).reshape(-1,*self.img_wh[::-1])  # (len(self.meta['frames]),h,w,3)
-            self.all_times = torch.stack(self.all_times[:400], 0)
+            self.all_times = torch.stack(self.all_times[:100], 0)
+            self.all_depths = torch.stack(self.all_depths[:100], 0).reshape(-1,*self.img_wh[::-1], 1)
 
         self.all_times = (self.all_times / self.all_times.max() * 2.0 - 1.0)
 
@@ -206,6 +235,10 @@ class YourOwnDataset(Dataset):
             sample = {'rays': rays,
                       'rgbs': img,
                       'time': time}
+            
+        if self.depth_data:
+            sample['depths'] = self.all_depths[idx]
+
         return sample
     
     def get_val_pose(self):
@@ -350,3 +383,21 @@ class YourOwnDataset(Dataset):
         pose[:3, :3] = Rotation.from_quat(pvec[3:]).as_matrix()
         pose[:3, 3] = pvec[:3]
         return pose
+    
+    def associate_frames(self, tstamp_image, tstamp_depth, tstamp_pose, max_dt=0.08):
+        """ pair images, depths, and poses """
+        associations = []
+        for i, t in enumerate(tstamp_image):
+            if tstamp_pose is None:
+                j = np.argmin(np.abs(tstamp_depth - t))
+                if np.abs(tstamp_depth[j] - t) < max_dt:
+                    associations.append((i, j))
+            else:
+                j = np.argmin(np.abs(tstamp_depth - t))
+                k = np.argmin(np.abs(tstamp_pose - t))
+
+                if (np.abs(tstamp_depth[j] - t) < max_dt) and \
+                        (np.abs(tstamp_pose[k] - t) < max_dt):
+                    associations.append((i, j, k))
+
+        return associations

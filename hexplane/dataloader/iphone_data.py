@@ -52,119 +52,190 @@ def pose_spherical(theta, phi, radius):
     )
     return c2w
 
+# def normalize(v):
+#     """Normalize a vector."""
+#     return v / np.linalg.norm(v)
 
-class YourOwnDataset(Dataset):
-    def __init__(self, datadir, scene_bbox_min, scene_bbox_max, split='train', downsample=1.0, is_stack=False, N_vis=-1, cal_fine_bbox=False):
+# def average_poses(poses):
+#     """
+#     Calculate the average pose, which is then used to center all poses
+#     using @center_poses. Its computation is as follows:
+#     1. Compute the center: the average of pose centers.
+#     2. Compute the z axis: the normalized average z axis.
+#     3. Compute axis y': the average y axis.
+#     4. Compute x' = y' cross product z, then normalize it as the x axis.
+#     5. Compute the y axis: z cross product x.
 
-        self.N_vis = N_vis
-        self.root_dir = datadir
+#     Note that at step 3, we cannot directly use y' as y axis since it's
+#     not necessarily orthogonal to z axis. We need to pass from x to y.
+#     Inputs:
+#         poses: (N_images, 3, 4)
+#     Outputs:
+#         pose_avg: (3, 4) the average pose
+#     """
+#     # 1. Compute the center
+#     center = poses[..., 3].mean(0)  # (3)
+
+#     # 2. Compute the z axis
+#     z = normalize(poses[..., 2].mean(0))  # (3)
+
+#     # 3. Compute axis y' (no need to normalize as it's not the final output)
+#     y_ = poses[..., 1].mean(0)  # (3)
+
+#     # 4. Compute the x axis
+#     x = normalize(np.cross(z, y_))  # (3)
+
+#     # 5. Compute the y axis (as z and x are normalized, y is already of norm 1)
+#     y = np.cross(x, z)  # (3)
+
+#     pose_avg = np.stack([x, y, z, center], 1)  # (3, 4)
+
+#     return pose_avg
+
+# def center_poses(poses, blender2opencv):
+#     """
+#     Center the poses so that we can use NDC.
+#     See https://github.com/bmild/nerf/issues/34
+#     Inputs:
+#         poses: (N_images, 3, 4)
+#     Outputs:
+#         poses_centered: (N_images, 3, 4) the centered poses
+#         pose_avg: (3, 4) the average pose
+#     """
+#     poses = poses @ blender2opencv
+#     pose_avg = average_poses(poses)  # (3, 4)
+#     pose_avg_homo = np.eye(4)
+#     pose_avg_homo[
+#         :3
+#     ] = pose_avg  # convert to homogeneous coordinate for faster computation
+#     pose_avg_homo = pose_avg_homo
+#     # by simply adding 0, 0, 0, 1 as the last row
+#     last_row = np.tile(np.array([0, 0, 0, 1]), (len(poses), 1, 1))  # (N_images, 1, 4)
+#     poses_homo = np.concatenate(
+#         [poses, last_row], 1
+#     )  # (N_images, 4, 4) homogeneous coordinate
+
+#     poses_centered = np.linalg.inv(pose_avg_homo) @ poses_homo  # (N_images, 4, 4)
+#     #     poses_centered = poses_centered  @ blender2opencv
+#     poses_centered = poses_centered[:, :3]  # (N_images, 3, 4)
+
+#     return poses_centered, pose_avg_homo
+
+
+class iPhoneDataset(Dataset):
+    def __init__(self, datadir, split='train', downsample=1.0, is_stack=False, N_vis=-1):
+
+        self.N_vis = -1
+        self.root_dir = "/media/nico/TOSHIBA EXT/iPhone/iphone/paper-windmill"
         self.split = split
         self.is_stack = is_stack
-        self.downsample = downsample
+        self.downsample = 2
         self.define_transforms()
 
-        self.ndc_ray = False
-        self.depth_data = True
-
-        self.scene_bbox = torch.Tensor([scene_bbox_min, scene_bbox_max])
         self.blender2opencv = torch.Tensor([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
+        # self.blender2opencv = np.eye(4)
         self.read_meta()
         self.define_proj_mat()
 
         self.white_bg = False
-        self.near_far = [0.0, 1.0]
+        self.near_far = [0.10891095985144743, 0.5122392056138323]
         self.near = self.near_far[0]
         self.far = self.near_far[1]
-        self.world_bound_scale = 1.1
 
-        if cal_fine_bbox:
-            xyz_min, xyz_max = self.compute_bbox()
-            self.scene_bbox = torch.stack((xyz_min, xyz_max), dim=0)
+        self.scene_bbox = torch.Tensor([[
+            -0.28376930952072144,
+            -0.25683197379112244,
+            -0.321733295917511
+        ],
+        [
+            0.28376930952072144,
+            0.25683197379112244,
+            0.3217332661151886
+        ]])
         
-        self.center = torch.mean(self.scene_bbox, axis=0).float().view(1, 1, 3)
-        self.radius = (self.scene_bbox[1] - self.center).float().view(1, 1, 3)
-   
+        self.ndc_ray = False
+        self.depth_data = True
+
+    def read_depth(self, filename):
+        depth = np.array(read_pfm(filename)[0], dtype=np.float32)  # (800, 800)
+        return depth
+    
     def read_meta(self):
 
-        trajectories_droid = np.load('trajectories.npz')
-        traj_droid = trajectories_droid['arr_1']
+        stride = 1
 
-        rot = R.from_quat(traj_droid[:, 3:])
-        rot = rot.as_matrix()
-        poses = np.eye(4, 4)[None, :].repeat(rot.shape[0], axis=0)
-        poses[:, :3, :3] = rot
-        poses[:, :3, 3] = traj_droid[:, :3]
+        with open(os.path.join(self.root_dir, 'dataset.json'), 'r') as json_file:
+            dataset_json = json.load(json_file)
 
-        t = np.array([[0, 0, -1, 0], [0, 1, 0, 0], [1, 0, 0, 0], [0, 0, 0, 1]])
-        poses = [np.dot(t, p) for p in poses]
+        image_names = dataset_json['train_ids']
 
-        t = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 0], [0, 0, 0, 1]])
-        poses = [np.dot(t, p) for p in poses]
-        
-        w, h = int(640/self.downsample), int(480/self.downsample)
-        self.img_wh = [w,h]
-
-        self.focal_x = 542.822841
-        self.focal_y = 542.576870
-        self.cx = 315.593520
-        self.cy = 237.756098
-
-        # ray directions for all pixels, same for all images (same H, W, focal)
-        self.directions = get_ray_directions(h, w, [self.focal_x,self.focal_y], center=[self.cx, self.cy])  # (h, w, 3)
-        self.directions = self.directions / torch.norm(self.directions, dim=-1, keepdim=True)
-        self.intrinsics = torch.tensor([[self.focal_x,0,self.cx],[0,self.focal_y,self.cy],[0,0,1]]).float()
-
-        image_list = os.path.join(self.root_dir, 'rgb.txt')
-
-        # parse data
-        image_data = self.parse_list(image_list)
-        
-        self.image_paths = []
         self.poses = []
         self.all_rays = []
         self.all_rgbs = []
-        self.all_masks = []
         self.all_depths = []
         self.all_times = []
         timestamps = []
 
-        # for ix in tqdm(indicies, desc=f'Loading data {self.split} ({len(indicies)})'):#img_list:#
-        img_eval_interval = 1
-        idxs = list(range(0, len(image_data), img_eval_interval))
-        for i in tqdm(idxs, desc=f'Loading data {self.split} ({len(idxs)})'):#img_list:#
+        for t, imfile in tqdm(enumerate(image_names[::stride]), desc=f'Loading data {self.split} ({len(image_names[::stride])})'):
 
-            c2w = torch.FloatTensor(poses[i])
-            self.poses += [c2w]
+            file_path = os.path.join(self.root_dir, 'camera', imfile + '.json')
 
-            image_path = os.path.join(self.root_dir, image_data[i, 1])
-            self.image_paths += [image_path]
-            img = Image.open(image_path)
+            with open(file_path, 'r') as json_file:
+                camera_json = json.load(json_file)
+
+            focal_length = camera_json["focal_length"]
+            principal_point = camera_json["principal_point"]
+            w, h = camera_json["image_size"]
+            w //= self.downsample
+            h //= self.downsample
+
+            # Calculate the intrinsic matrix elements
+            self.focal_x = self.focal_y = focal_length
+            self.cx = principal_point[0]
+            self.cy = principal_point[1]
             
-            if self.downsample!=1.0:
-                img = img.resize(self.img_wh, Image.LANCZOS)
+            # Load image
+            image_path = os.path.join(self.root_dir, 'rgb/2x', imfile + '.png')     
+            img = Image.open(image_path)
             img = self.transform(img)  # (4, h, w)
             img = img.view(-1, w*h).permute(1, 0)  # (h*w, 4) RGBA
             if img.shape[-1]==4:
                 img = img[:, :3] * img[:, -1:] + (1 - img[:, -1:])  # blend A to RGB
             self.all_rgbs += [img]
 
-            image_name = image_path.split('/')[-1].replace('.png', '')
+            # Save timestamp
+            timestamps.append(float(t))
 
-            # load depth
-            disp_path = os.path.join(
-                    self.root_dir, "rgb/dpt", str(image_name).zfill(3) + ".npy"
-                )
-            disp_data = np.load(disp_path)
-            disp_resized = cv2.resize(disp_data, (w, h), interpolation=cv2.INTER_LINEAR)
-            disp = torch.from_numpy(disp_resized).view(-1)
-            self.all_depths += [1 / disp]
+            # Load depth
+            depth_path = os.path.join(self.root_dir, 'depth/2x', imfile + '.npy')
+            depth = torch.from_numpy(np.load(depth_path)).view(w*h, -1)
+            self.all_depths.append(depth)
+
+            # Load pose
+            file_path = os.path.join(self.root_dir, 'camera', imfile + '.json')
+
+            with open(file_path, 'r') as json_file:
+                camera_json = json.load(json_file)
+
+            orientation = camera_json["orientation"]
+            position = camera_json["position"]
+
+            c2w = torch.eye(4, 4)
+            c2w[:3, :3] = torch.Tensor(orientation)
+            c2w[:3, 3] = (torch.Tensor(position) - torch.Tensor([-0.20061972737312317, 0.1705830693244934, -1.1717479228973389])) * 0.2715916376300303
+            c2w = torch.inverse(c2w)
+            self.poses.append(c2w)
+
+            # Create rays
+            # ray directions for all pixels, same for all images (same H, W, focal)
+            self.directions = get_ray_directions(h, w, [self.focal_x,self.focal_y], center=[self.cx, self.cy])  # (h, w, 3)
+            self.directions = self.directions / torch.norm(self.directions, dim=-1, keepdim=True)
+            self.intrinsics = torch.tensor([[self.focal_x,0,self.cx],[0,self.focal_y,self.cy],[0,0,1]]).float()
 
             rays_o, rays_d = get_rays(self.directions, c2w)  # both (h*w, 3)
-            if self.ndc_ray:
-                rays_o, rays_d = ndc_rays_blender_tum(h, w, [self.focal_x, self.focal_y], 1.0, rays_o, rays_d)
             self.all_rays += [torch.cat([rays_o, rays_d], 1)]  # (h*w, 6)
 
-            timestamps.append(float(image_name))
+        self.img_wh = [w,h]
 
         timestamps = np.array(timestamps)
         timestamps -= timestamps[0]
@@ -174,27 +245,11 @@ class YourOwnDataset(Dataset):
             timestamp = torch.tensor(timestamps[i], dtype=torch.float32).expand(rays_o.shape[0], 1)
             self.all_times.append(timestamp)
 
-        self.poses = torch.stack(self.poses)[200:700]
-        # self.poses, avg_pose = center_poses(self.poses[:, :3, :], self.blender2opencv)
-        # self.poses = torch.from_numpy(self.poses)
-
-        # # Step 3: correct scale so that the nearest depth is at a little more than 1.0
-        # # See https://github.com/bmild/nerf/issues/34
-        # self.near_fars = torch.Tensor([0.0, 10.0])
-        # near_original = self.near_fars.min()
-        # scale_factor = near_original * 0.75  # 0.75 is the default parameter
-        # # the nearest depth is at 1/0.75=1.33
-        # self.near_fars /= scale_factor
-        # self.poses[..., 3] /= scale_factor
-
-        self.all_rays = torch.stack(self.all_rays, 0)[200:700]
-        self.all_rgbs = torch.stack(self.all_rgbs, 0)[200:700]
-        self.all_depths = torch.stack(self.all_depths, 0)[200:700]
-        # self.all_depths = (self.all_depths - self.all_depths.min()) / (self.all_depths.max() - self.all_depths.min())
-        # self.all_depths /= self.all_depths.max()
-        # mask = self.all_depths != 0
-        # self.all_depths = (self.all_depths - self.all_depths[mask].min()) / (self.all_depths[mask].max() - self.all_depths[mask].min())
-        self.all_times = torch.stack(self.all_times)[200:700]
+        self.poses = torch.stack(self.poses)[:10]
+        self.all_rays = torch.stack(self.all_rays, 0)[0:10]
+        self.all_rgbs = torch.stack(self.all_rgbs, 0)[0:10]
+        self.all_depths = torch.stack(self.all_depths, 0)[0:10]
+        self.all_times = torch.stack(self.all_times)[0:10]
         self.all_times = ((self.all_times - self.all_times.min()) / (self.all_times.max() - self.all_times.min()) * 2.0 - 1.0)
 
         if not self.is_stack:
@@ -211,7 +266,7 @@ class YourOwnDataset(Dataset):
             self.all_times = torch.cat([t.squeeze() for t in self.all_times], 0).unsqueeze(1)
 
         else:
-            test_mask = np.mod(np.arange(self.poses.shape[0])+1,8)==0
+            test_mask = np.mod(np.arange(self.poses.shape[0])+1,8)!=0
             self.poses = self.poses[test_mask]
             self.all_rays = self.all_rays[test_mask]  # (len(self.meta['frames]),h*w, 3)
             self.all_rgbs = self.all_rgbs[test_mask].reshape(-1,*self.img_wh[::-1], 3)  # (len(self.meta['frames]),h,w,3)
@@ -223,9 +278,7 @@ class YourOwnDataset(Dataset):
         self.transform = T.ToTensor()
         
     def define_proj_mat(self):
-        poses = torch.eye(4).unsqueeze(0).repeat(self.poses.shape[0], 1, 1)
-        poses[:, :, :] = self.poses
-        self.proj_mat = self.intrinsics.unsqueeze(0) @ torch.inverse(poses)[:,:3]
+        self.proj_mat = self.intrinsics.unsqueeze(0) @ torch.inverse(self.poses)[:,:3]
 
     def world2ndc(self,points,lindisp=None):
         device = points.device

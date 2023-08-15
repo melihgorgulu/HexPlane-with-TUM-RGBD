@@ -54,43 +54,40 @@ def pose_spherical(theta, phi, radius):
 
 
 class YourOwnDataset(Dataset):
-    def __init__(self, datadir, split='train', downsample=1.0, is_stack=False, N_vis=-1):
+    def __init__(self, datadir, scene_bbox, split='train', downsample=1.0, is_stack=False, N_vis=-1, cal_fine_bbox=False):
 
-        self.N_vis = -1
-        self.root_dir = "/media/nico/TOSHIBA EXT/rgbd_bonn_dataset/rgbd_bonn_moving_nonobstructing_box"
+        self.N_vis = N_vis
+        self.root_dir = datadir
         self.split = split
         self.is_stack = is_stack
         self.downsample = downsample
         self.define_transforms()
+        
+        self.ndc_ray = False
+        self.depth_data = True
 
-        self.scene_bbox = torch.tensor([[-5.0, -5, -5], [5, 5, 5]])
+        self.scene_bbox = torch.tensor(scene_bbox)
         self.blender2opencv = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
         self.read_meta()
         self.define_proj_mat()
 
-        self.white_bg = True
-        self.near_far = [0.1, 10.0]
+        self.white_bg = False
+        self.near_far = [0.0, 1.0]
         self.near = self.near_far[0]
         self.far = self.near_far[1]
         self.world_bound_scale = 1.1
 
-        cal_fine_bbox = True
-        if cal_fine_bbox and split=="train":
+        if cal_fine_bbox:
             xyz_min, xyz_max = self.compute_bbox()
             self.scene_bbox = torch.stack((xyz_min, xyz_max), dim=0)
         
         self.center = torch.mean(self.scene_bbox, axis=0).float().view(1, 1, 3)
         self.radius = (self.scene_bbox[1] - self.center).float().view(1, 1, 3)
-        self.downsample=downsample
-
-        self.ndc_ray = False
-        self.depth_data = False
-
-    def read_depth(self, filename):
-        depth = np.array(read_pfm(filename)[0], dtype=np.float32)  # (800, 800)
-        return depth
+        self.downsample = downsample
     
     def read_meta(self):
+
+        frame_rate = 32
 
         trajectories_droid = np.load('trajectories.npz')
         traj_droid = trajectories_droid['arr_1']
@@ -106,17 +103,6 @@ class YourOwnDataset(Dataset):
 
         t = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 0], [0, 0, 0, 1]])
         poses = [np.dot(t, p) for p in poses]
-
-        # r_a = np.array([[ 0.96087981,  0.22790851,  0.15737759],
-        #                 [-0.25002355,  0.9582305 ,  0.13886156],
-        #                 [-0.11915627, -0.17277737,  0.97772683]])
-        # t_a = np.array([3.56731444, 0.82828753, 0.33728577])
-        # s = 9.947388632027927
-        # poses = [
-        #                 lie.se3(p[:3, :3], s * p[:3, 3]) for p in poses
-        #             ]
-        # t = lie.se3(r_a, t_a)
-        # poses = [np.dot(t, p) for p in poses]
 
         w, h = int(640/self.downsample), int(480/self.downsample)
         self.img_wh = [w,h]
@@ -138,21 +124,59 @@ class YourOwnDataset(Dataset):
         image_data = self.parse_list(image_list)
         depth_data = self.parse_list(depth_list)
 
+        # associate dept rgb and ground truth data
+        tstamp_image = image_data[:, 0].astype(np.float64)
+        tstamp_depth = depth_data[:, 0].astype(np.float64)
+        associations = self.associate_frames(
+            tstamp_image, tstamp_depth, tstamp_image)  # (image, depth, pose) pairs
+        
+        indicies = [0]
+        for i in range(1, len(associations)):
+            t0 = tstamp_image[associations[indicies[-1]][0]]  # take association index for image and then get timestamp
+            t1 = tstamp_image[associations[i][0]]
+            if t1 - t0 > 1.0 / frame_rate:
+                indicies += [i]
+
+        # poses = torch.from_numpy(np.stack(poses)).float()[:, :3, :]
+        # # t_d = torch.median(poses[..., 3])
+        # # s_d = torch.mean(torch.abs(poses[..., 3] - t_d))
+        # # poses[..., 3] = (poses[..., 3] - t_d) / (s_d + 1e-10)
+        # # poses[:, -1, 3] = 1.0
+
+        # self.poses, self.pose_avg = center_poses(poses, self.blender2opencv)
+
+        # avglen = 0.
+        # for f in poses:
+        #     avglen += np.linalg.norm(f[0:3,3])
+        # avglen /= len(poses)
+        # print("avg camera distance from origin", avglen)
+        # for f in range(len(poses)):
+        #     poses[f][0:3,3] *= 4.0 / avglen # scale to "nerf sized"
+
+        # # scale_factor = torch.abs(poses[..., 3]).max() * 2.0
+        # # # the nearest depth is at 1/0.75=1.33
+        # # poses[..., 3] /= scale_factor
+        
         self.image_paths = []
         self.poses = []
         self.all_rays = []
         self.all_rgbs = []
         self.all_masks = []
-        self.all_depth = []
+        self.all_depths = []
         self.all_times = []
         timestamps = []
 
-        img_eval_interval = 1
-        idxs = list(range(0, len(image_data), img_eval_interval))
-        for i in tqdm(idxs, desc=f'Loading data {self.split} ({len(idxs)})'):#img_list:#
+        # img_eval_interval = 1
+        # idxs = list(range(0, len(image_data), img_eval_interval))
+        for ix in tqdm(indicies, desc=f'Loading data {self.split} ({len(indicies)})'):#img_list:#
+        # img_eval_interval = 1
+        # idxs = list(range(0, len(image_data), img_eval_interval))
+        # for i in tqdm(idxs, desc=f'Loading data {self.split} ({len(idxs)})'):#img_list:#
 
-            pose = poses[i]
-            c2w = torch.FloatTensor(pose)
+            (i, j, k) = associations[ix]
+
+            c2w = torch.FloatTensor(poses[k])
+            # c2w = torch.FloatTensor(poses[i])
             self.poses += [c2w]
 
             image_path = os.path.join(self.root_dir, image_data[i, 1])
@@ -167,6 +191,12 @@ class YourOwnDataset(Dataset):
                 img = img[:, :3] * img[:, -1:] + (1 - img[:, -1:])  # blend A to RGB
             self.all_rgbs += [img]
 
+            # load depth
+            depth = cv2.imread(os.path.join(self.root_dir, depth_data[j, 1]), cv2.IMREAD_UNCHANGED)
+            depth = depth[:, :, np.newaxis].astype(np.int32) # Pytorch cannot handle uint16
+            depth = torch.from_numpy(depth).float()
+            depth = depth.view(1, -1).permute(1, 0)
+            self.all_depths += [depth]
 
             rays_o, rays_d = get_rays(self.directions, c2w)  # both (h*w, 3)
             self.all_rays += [torch.cat([rays_o, rays_d], 1)]  # (h*w, 6)
@@ -174,12 +204,7 @@ class YourOwnDataset(Dataset):
             image_name = image_path.split('/')[-1].replace('.png', '')
             timestamps.append(float(image_name))
 
-        indices = np.argsort(self.image_paths)
-        self.image_paths = np.array(self.image_paths)[indices].tolist()
-        self.poses = np.array(self.poses)[indices].tolist()
-        self.all_rays = np.array(self.all_rays)[indices].tolist()
-        self.all_rgbs = np.array(self.all_rgbs)[indices].tolist()
-        timestamps = np.array(timestamps)[indices]
+        timestamps = np.array(timestamps)
         timestamps -= timestamps[0]
         timestamps /= timestamps[-1]
 
@@ -187,21 +212,37 @@ class YourOwnDataset(Dataset):
             timestamp = torch.tensor(timestamps[i], dtype=torch.float32).expand(rays_o.shape[0], 1)
             self.all_times.append(timestamp)
 
-        self.poses = torch.stack(self.poses)
-        if not self.is_stack:
-            self.all_rays = torch.cat(self.all_rays, 0)  # (len(self.meta['frames])*h*w, 3)
-            self.all_rgbs = torch.cat(self.all_rgbs, 0)  # (len(self.meta['frames])*h*w, 3)
-            self.all_times = torch.cat(self.all_times, 0)
-
-#             self.all_depth = torch.cat(self.all_depth, 0)  # (len(self.meta['frames])*h*w, 3)
-        else:
-            self.all_rays = torch.stack(self.all_rays, 0)  # (len(self.meta['frames]),h*w, 3)
-            self.all_rgbs = torch.stack(self.all_rgbs, 0).reshape(-1,*self.img_wh[::-1], 3)  # (len(self.meta['frames]),h,w,3)
-            # self.all_masks = torch.stack(self.all_masks, 0).reshape(-1,*self.img_wh[::-1])  # (len(self.meta['frames]),h,w,3)
-            self.all_times = torch.stack(self.all_times, 0)
-
+        self.poses = torch.stack(self.poses)[200:700]
+        self.all_rays = torch.stack(self.all_rays, 0)[200:700]
+        self.all_rgbs = torch.stack(self.all_rgbs, 0)[200:700]
+        self.all_depths = torch.stack(self.all_depths, 0)[200:700]
+        # self.all_depths /= self.all_depths.max()
+        # mask = self.all_depths != 0
+        # self.all_depths = (self.all_depths - self.all_depths[mask].min()) / (self.all_depths[mask].max() - self.all_depths[mask].min())
+        self.all_times = torch.stack(self.all_times)[200:700]
         self.all_times = ((self.all_times - self.all_times.min()) / (self.all_times.max() - self.all_times.min()) * 2.0 - 1.0)
 
+        if not self.is_stack:
+            train_mask = np.mod(np.arange(self.poses.shape[0])+1,8)!=0
+            self.poses = self.poses[train_mask]
+            self.all_rays = list(self.all_rays[train_mask].split(1, dim=0))
+            self.all_rgbs = list(self.all_rgbs[train_mask].split(1, dim=0))
+            self.all_depths = list(self.all_depths[train_mask].split(1, dim=0))
+            self.all_times = list(self.all_times[train_mask].split(1, dim=0))
+
+            self.all_rays = torch.cat([t.squeeze() for t in self.all_rays], 0)  # (len(self.meta['frames])*h*w, 6)
+            self.all_rgbs = torch.cat([t.squeeze() for t in self.all_rgbs], 0)  # (len(self.meta['frames])*h*w, 3)
+            self.all_depths = torch.cat([t.squeeze() for t in self.all_depths], 0)  # (len(self.meta['frames])*h*w, 1)
+            self.all_times = torch.cat([t.squeeze() for t in self.all_times], 0).unsqueeze(1)
+
+        else:
+            test_mask = np.mod(np.arange(self.poses.shape[0])+1,8)==0
+            self.poses = self.poses[test_mask]
+            self.all_rays = self.all_rays[test_mask]  # (len(self.meta['frames]),h*w, 3)
+            self.all_rgbs = self.all_rgbs[test_mask].reshape(-1,*self.img_wh[::-1], 3)  # (len(self.meta['frames]),h,w,3)
+            self.all_depths = self.all_depths[test_mask].reshape(-1,*self.img_wh[::-1], 1)
+            # self.all_masks = torch.stack(self.all_masks, 0).reshape(-1,*self.img_wh[::-1])  # (len(self.meta['frames]),h,w,3)
+            self.all_times = self.all_times[test_mask]
 
     def define_transforms(self):
         self.transform = T.ToTensor()
@@ -233,6 +274,10 @@ class YourOwnDataset(Dataset):
             sample = {'rays': rays,
                       'rgbs': img,
                       'time': time}
+            
+        if self.depth_data:
+            sample['depths'] = self.all_depths[idx]
+
         return sample
     
     def get_val_pose(self):
@@ -242,7 +287,7 @@ class YourOwnDataset(Dataset):
         render_poses = torch.stack(
             [
                 pose_spherical(angle, 0.0, 0.0)
-                for angle in np.linspace(80, 100, 100 + 1)[:-1]
+                for angle in np.linspace(60, 100, 500 + 1)[:-1]
             ],
             0,
         )
@@ -299,3 +344,21 @@ class YourOwnDataset(Dataset):
         pose[:3, :3] = Rotation.from_quat(pvec[3:]).as_matrix()
         pose[:3, 3] = pvec[:3]
         return pose
+    
+    def associate_frames(self, tstamp_image, tstamp_depth, tstamp_pose, max_dt=0.08):
+        """ pair images, depths, and poses """
+        associations = []
+        for i, t in enumerate(tstamp_image):
+            if tstamp_pose is None:
+                j = np.argmin(np.abs(tstamp_depth - t))
+                if np.abs(tstamp_depth[j] - t) < max_dt:
+                    associations.append((i, j))
+            else:
+                j = np.argmin(np.abs(tstamp_depth - t))
+                k = np.argmin(np.abs(tstamp_pose - t))
+
+                if (np.abs(tstamp_depth[j] - t) < max_dt) and \
+                        (np.abs(tstamp_pose[k] - t) < max_dt):
+                    associations.append((i, j, k))
+
+        return associations

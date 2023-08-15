@@ -65,6 +65,17 @@ def closest_point_2_lines(oa, da, ob, db): # returns point closest to both rays 
 		tb = 0
 	return (oa+ta*da+ob+tb*db) * 0.5, denom
 
+def rotmat(a, b):
+	a, b = a / np.linalg.norm(a), b / np.linalg.norm(b)
+	v = np.cross(a, b)
+	c = np.dot(a, b)
+	# handle exception for the opposite direction input
+	if c < -1 + 1e-10:
+		return rotmat(a + np.random.uniform(-1e-2, 1e-2, 3), b)
+	s = np.linalg.norm(v)
+	kmat = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+	return np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s ** 2 + 1e-10))
+
 
 class TUMRgbdDataset(Dataset):
     def __init__(self, datadir, split='train', downsample=1.0, is_stack=False, N_vis=-1):
@@ -97,7 +108,7 @@ class TUMRgbdDataset(Dataset):
         self.downsample=downsample
 
         self.ndc_ray = False
-        self.depth_data = False
+        self.depth_data = True
 
     def read_depth(self, filename):
         depth = np.array(read_pfm(filename)[0], dtype=np.float32)  # (800, 800)
@@ -161,7 +172,7 @@ class TUMRgbdDataset(Dataset):
 
             (i, j, k) = associations[ix]  # image idx, depth idx, pose idx
 
-            c2w = self.pose_matrix_from_quaternion(pose_vecs[k]) @ self.blender2opencv
+            c2w = self.pose_matrix_from_quaternion(pose_vecs[k])
             self.poses += [c2w]
 
             image_path = os.path.join(self.root_dir, image_data[i, 1])
@@ -199,7 +210,11 @@ class TUMRgbdDataset(Dataset):
         # Transform TUM RGB-D format to NeRF format
         self.poses2nerf()
 
+        # with open(os.path.join(self.root_dir, f"transforms.json"), 'r') as f:
+        #     self.meta = json.load(f)
+
         for i in range(len(timestamps)):
+            self.poses[i] = self.poses[i] @ self.blender2opencv
             rays_o, rays_d = get_rays(self.directions, self.poses[i].float())  # both (h*w, 3)
             self.all_rays += [torch.cat([rays_o, rays_d], 1)]  # (h*w, 6)
             timestamp = torch.tensor(timestamps[i], dtype=torch.float32).expand(rays_o.shape[0], 1)
@@ -267,7 +282,7 @@ class TUMRgbdDataset(Dataset):
         render_poses = torch.stack(
             [
                 pose_spherical(0.0, 0.0, 0.0)
-                for angle in np.linspace(-180, 180, 100 + 1)[:-1]
+                for angle in np.linspace(-180, 180, 400 + 1)[:-1]
             ],
             0,
         )
@@ -337,6 +352,19 @@ class TUMRgbdDataset(Dataset):
     def poses2nerf(self):
         t = np.array([[0, 1, 0, 0], [-1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
 
+        # up = np.zeros(3)
+        # for pose in self.poses:
+        #     up += pose[0:3,1]
+
+        # up = up / np.linalg.norm(up)
+        # print("up vector was", up)
+        # R = rotmat(up,[0,0,1]) # rotate up vector to [0,0,1]
+        # R = np.pad(R,[0,1])
+        # R[-1, -1] = 1
+
+        # for f in range(len(self.poses)):
+        #     self.poses[f] = np.matmul(R, self.poses[f]) # rotate up to be the z axis
+
         print("computing center of attention...")
         totw = 0.0
         totp = np.array([0.0, 0.0, 0.0])
@@ -351,16 +379,16 @@ class TUMRgbdDataset(Dataset):
         if totw > 0.0:
             totp /= totw
         print(totp) # the cameras are looking at totp
-        for f in self.poses:
-            f[0:3,3] -= totp
+        for f in range(len(self.poses)):
+            self.poses[f][0:3,3] -= totp
 
         avglen = 0.
         for f in self.poses:
             avglen += np.linalg.norm(f[0:3,3])
         avglen /= len(self.poses)
         print("avg camera distance from origin", avglen)
-        for f in self.poses:
-            f[0:3,3] *= 4.0 / avglen # scale to "nerf sized"
+        for f in range(len(self.poses)):
+            self.poses[f][0:3,3] *= 4.0 / avglen # scale to "nerf sized"
 
         self.poses = [torch.from_numpy(np.dot(t, p)) for p in self.poses]
 
