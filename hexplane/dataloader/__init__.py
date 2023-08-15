@@ -1,4 +1,5 @@
 from .tumrgbd_dataset import TUMRgbdDataset
+from .bonnrgbd_dataset import BonngbdDataset
 # from .your_own_data import YourOwnDataset
 from .droid_slam_data_midas import YourOwnDataset
 # from .droid_slam_data import YourOwnDataset
