@@ -72,7 +72,7 @@ class YourOwnDataset(Dataset):
         self.define_proj_mat()
 
         self.white_bg = False
-        self.near_far = [0.0, 1.0]
+        self.near_far = [0.0, 2.0]
         self.near = self.near_far[0]
         self.far = self.near_far[1]
         self.world_bound_scale = 1.1
@@ -190,7 +190,7 @@ class YourOwnDataset(Dataset):
         self.all_rays = torch.stack(self.all_rays, 0)[200:700]
         self.all_rgbs = torch.stack(self.all_rgbs, 0)[200:700]
         self.all_depths = torch.stack(self.all_depths, 0)[200:700]
-        # self.all_depths = (self.all_depths - self.all_depths.min()) / (self.all_depths.max() - self.all_depths.min())
+        self.all_depths = 2 * (self.all_depths - self.all_depths.min()) / (self.all_depths.max() - self.all_depths.min())
         # self.all_depths /= self.all_depths.max()
         # mask = self.all_depths != 0
         # self.all_depths = (self.all_depths - self.all_depths[mask].min()) / (self.all_depths[mask].max() - self.all_depths[mask].min())

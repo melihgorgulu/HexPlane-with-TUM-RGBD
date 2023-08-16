@@ -6,11 +6,11 @@ systems:
 model:
   model_name: "HexPlane"
   # N_voxel_init: 8000000
-  # time_grid_init: 30 # according to github, this should be set to 0.25 * frame_number
-  # time_grid_final: 300 # according to github, this should be set to frame_number
+  time_grid_init: 50
+  time_grid_final: 499 # according to github, this should be set to frame_number - 1
   upsampling_type: aligned
-  upsample_list: [10000, 20000, 30000]
-  update_emptymask_list: [10000, 2000, 30000]
+  upsample_list: [20000, 30000, 40000]
+  update_emptymask_list: [15000, 25000, 45000, 60000]
 
   depth_loss: True
   depth_loss_weight: 0.01
@@ -31,8 +31,8 @@ model:
   density_dim: 8
   DensityMode: "general_MLP"
 
-  density_featureC: 256
-  app_featureC: 256
+  # density_featureC: 256
+  # app_featureC: 256
 
 
 data:
