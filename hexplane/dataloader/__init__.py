@@ -1,11 +1,12 @@
 from .tumrgbd_dataset import TUMRgbdDataset
-from .bonnrgbd_dataset import BonngbdDataset
+from .bonnrgbd_dataset import BonnrgbdDataset
 # from .your_own_data import YourOwnDataset
-from .droid_slam_data_midas import YourOwnDataset
+from .droid_slam_data_midas_bonn import BonnDataset
 # from .droid_slam_data import YourOwnDataset
 from .iphone_data import iPhoneDataset
 
-def get_train_dataset(cfg, is_stack=False, images=[], depths=[], poses=[], timestamps=[], intrinsics=[]):
+def get_train_dataset(cfg, is_stack=False, images=[], depths=[], poses=[],
+                      timestamps=[], intrinsics=[], image_size=[]):
     if cfg.data.dataset_name == "bonn_rgbd":
         train_dataset = BonnrgbdDataset(
             cfg.data.datadir,
@@ -14,9 +15,13 @@ def get_train_dataset(cfg, is_stack=False, images=[], depths=[], poses=[], times
             is_stack=is_stack,
             N_vis=cfg.data.N_vis,
         )
-    elif cfg.data.dataset_name == "own_data":
-        train_dataset = YourOwnDataset(
-            cfg.data.datadir,
+    elif cfg.data.dataset_name == "bonn_slam":
+        train_dataset = BonnDataset(
+            images,
+            poses,
+            timestamps,
+            intrinsics,
+            image_size,
             cfg.data.scene_bbox_min,
             cfg.data.scene_bbox_max,
             "train",

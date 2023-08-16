@@ -36,8 +36,6 @@ model:
 
 
 data:
-  # datadir: ""
-  datadir: "/media/nico/TOSHIBA EXT/rgbd_bonn_dataset/rgbd_bonn_moving_nonobstructing_box"
   dataset_name: bonn_slam
   scene_bbox_min: [-1.0, -1.0, -1.0]
   scene_bbox_max: [1.0, 1.0, 1.0]

@@ -77,7 +77,7 @@ def rotmat(a, b):
 	return np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s ** 2 + 1e-10))
 
 
-class BonngbdDataset(Dataset):
+class BonnrgbdDataset(Dataset):
     def __init__(self, datadir, split='train', downsample=1.0, is_stack=False, N_vis=-1):
 
         self.N_vis = -1
