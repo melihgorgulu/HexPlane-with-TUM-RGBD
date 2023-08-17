@@ -56,7 +56,7 @@ def pose_spherical(theta, phi, radius):
 
 
 class BonnDataset(Dataset):
-    def __init__(self, images, poses, timestamps, intrinsics, image_size,
+    def __init__(self, images, poses, timestamps, intrinsics,
                  scene_bbox_min, scene_bbox_max, split='train', downsample=1.0,
                  is_stack=False, N_vis=-1, cal_fine_bbox=False):
 
@@ -68,6 +68,8 @@ class BonnDataset(Dataset):
 
         self.ndc_ray = False # currently does not work
         self.depth_data = True
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # load Midas depth model
         self.midas = DPTDepthModel(
@@ -99,7 +101,6 @@ class BonnDataset(Dataset):
         self.poses = poses
         self.timestamps = timestamps
         self.intrinsics = intrinsics
-        self.image_size = image_size
 
         self.scene_bbox = torch.Tensor([scene_bbox_min, scene_bbox_max])
         self.blender2opencv = torch.Tensor([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
@@ -112,7 +113,7 @@ class BonnDataset(Dataset):
         self.far = self.near_far[1]
         self.world_bound_scale = 1.1
 
-        if cal_fine_bbox:
+        if cal_fine_bbox and split == "train":
             xyz_min, xyz_max = self.compute_bbox()
             self.scene_bbox = torch.stack((xyz_min, xyz_max), dim=0)
         
@@ -145,95 +146,108 @@ class BonnDataset(Dataset):
         self.directions = self.directions / torch.norm(self.directions, dim=-1, keepdim=True)
         self.intrinsics = torch.tensor([[self.focal_x,0,self.cx],[0,self.focal_y,self.cy],[0,0,1]]).float()
         
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.midas.eval()
-        self.midas.to(device)
+        self.midas.to(self.device)
 
         self.poses = []
-        self.all_rays = []
-        self.all_rgbs = []
-        self.all_depths = []
-        self.all_times = []
         timestamps = []
+        self.all_times = []
 
-        idxs = list(range(0, len(self.images)))
-        for i in tqdm(idxs, desc=f'Loading data {self.split} ({len(idxs)})'):#img_list:#
+        if self.split == "train":
+            idxs = list(range(0, len(self.images)))
+            idxs = [num for num in idxs if (num+1) % 8 != 0]
+            N_images_train = len(idxs)
+            self.all_rays = torch.zeros(h*w*N_images_train, 6)
+            self.all_rgbs = torch.zeros(h*w*N_images_train, 3)
+            self.all_depths = torch.zeros(h*w*N_images_train)
+        else:
+            idxs = list(range(0, len(self.images)))
+            idxs = [num for num in idxs if (num+1) % 8 == 0]
+            self.all_rays = []
+            self.all_rgbs = []
+            self.all_depths = []
 
-            c2w = torch.FloatTensor(poses[i])
+        for t, i in enumerate(tqdm(idxs, desc=f'Loading data {self.split} ({len(idxs)})')):#img_list:#
+            c2w = torch.from_numpy(poses[i]).float()
             self.poses += [c2w]
 
             image_path = self.images[i]
             img = Image.open(image_path)
+            image = img.copy()
             
             if self.downsample!=1.0:
                 img = img.resize(self.img_wh, Image.LANCZOS)
-            image = self.transform(img)  # (3, h, w)
-            img = image.view(-1, w*h).permute(1, 0)  # (h*w, 3) RGBA
+            img = self.transform(img)  # (3, h, w)
+            img = img.view(-1, w*h).permute(1, 0) # (h*w, 3) RGBA
             if img.shape[-1]==4:
                 img = img[:, :3] * img[:, -1:] + (1 - img[:, -1:])  # blend A to RGB
-            self.all_rgbs += [img]
+
+            if self.is_stack:
+                self.all_rgbs += [img]
+            else:
+                self.all_rgbs[t*h*w: (t+1)*h*w] = img
 
             # compute midas depth
             if self.depth_data:
-                img_input = self.midas_transform({"image": image.permute(1, 2, 0).cpu().numpy()})["image"]
+                # always use full resolution RGB for depth map
+                image = self.transform(image)
+                img = self.midas_transform({"image": image.permute(1, 2, 0).cpu().numpy()})["image"]
 
                 with torch.no_grad():
-                    sample = torch.from_numpy(img_input).to(device).unsqueeze(0)
-                    prediction = self.midas.forward(sample)
+                    img = torch.from_numpy(img).to(self.device).unsqueeze(0)
+                    disp = self.midas.forward(img)
                     disp = (
-                        torch.nn.functional.interpolate(prediction.unsqueeze(1), size=[h, w],
+                        torch.nn.functional.interpolate(disp.unsqueeze(1), size=[h, w],
                             mode="bicubic", align_corners=False).squeeze()
                             )
 
-                self.all_depths += [1 / disp.unsqueeze(-1)]
+                if self.is_stack:
+                    self.all_depths += [1 / disp.view(-1)]
+                else:
+                    self.all_depths[t*h*w: (t+1)*h*w] = 1 / disp.view(-1)
 
             rays_o, rays_d = get_rays(self.directions, c2w)  # both (h*w, 3)
             if self.ndc_ray:
                 rays_o, rays_d = ndc_rays_blender_tum(h, w, [self.focal_x, self.focal_y], 1.0, rays_o, rays_d)
-            self.all_rays += [torch.cat([rays_o, rays_d], 1)]  # (h*w, 6)
+
+            if self.is_stack:
+                self.all_rays += [torch.cat([rays_o, rays_d], 1)]  # (h*w, 6)
+            else:
+                self.all_rays[t*h*w: (t+1)*h*w] = torch.cat([rays_o, rays_d], 1)
 
             timestamps.append(self.timestamps[i])
 
-        timestamps = np.array(timestamps)
-        timestamps -= timestamps[0]
-        timestamps /= timestamps[-1]
+        # timestamps = np.array(timestamps)
+        # timestamps -= timestamps[0]
+        # timestamps /= timestamps[-1]
 
         for i in range(len(timestamps)):
-            timestamp = torch.tensor(timestamps[i], dtype=torch.float32).expand(rays_o.shape[0], 1)
+            timestamp = torch.tensor(timestamps[i], dtype=torch.float64).expand(rays_o.shape[0], 1)
             self.all_times.append(timestamp)
 
-        self.poses = torch.stack(self.poses)[200:700]
-
-        self.all_rays = torch.stack(self.all_rays, 0)[200:700]
-        self.all_rgbs = torch.stack(self.all_rgbs, 0)[200:700]
-        if self.depth_data:
-            self.all_depths = torch.stack(self.all_depths, 0)[200:700]
-            self.all_depths = 2 * (self.all_depths - self.all_depths.min()) / (self.all_depths.max() - self.all_depths.min())
-        self.all_times = torch.stack(self.all_times)[200:700]
-        self.all_times = ((self.all_times - self.all_times.min()) / (self.all_times.max() - self.all_times.min()) * 2.0 - 1.0)
+        self.poses = torch.stack(self.poses)
 
         if not self.is_stack:
-            train_mask = np.mod(np.arange(self.poses.shape[0])+1,8)!=0
-            self.poses = self.poses[train_mask]
-            self.all_rays = list(self.all_rays[train_mask].split(1, dim=0))
-            self.all_rgbs = list(self.all_rgbs[train_mask].split(1, dim=0))
+            self.all_rays = self.all_rays
+            self.all_rgbs = self.all_rgbs
             if self.depth_data:
-                self.all_depths = list(self.all_depths[train_mask].split(1, dim=0))
-            self.all_times = list(self.all_times[train_mask].split(1, dim=0))
-
-            self.all_rays = torch.cat([t.squeeze() for t in self.all_rays], 0)  # (len(self.meta['frames])*h*w, 6)
-            self.all_rgbs = torch.cat([t.squeeze() for t in self.all_rgbs], 0)  # (len(self.meta['frames])*h*w, 3)
-            self.all_depths = torch.cat([t.squeeze() for t in self.all_depths], 0)  # (len(self.meta['frames])*h*w, 1)
-            self.all_times = torch.cat([t.squeeze() for t in self.all_times], 0).unsqueeze(1)
-
+                self.all_depths = self.all_depths
+                self.all_depths = 2 * (self.all_depths - self.all_depths.min()) / (self.all_depths.max() - self.all_depths.min())
+            self.all_times = torch.cat(self.all_times, 0)
         else:
-            test_mask = np.mod(np.arange(self.poses.shape[0])+1,8)==0
-            self.poses = self.poses[test_mask]
-            self.all_rays = self.all_rays[test_mask]  # (len(self.meta['frames]),h*w, 3)
-            self.all_rgbs = self.all_rgbs[test_mask].reshape(-1,*self.img_wh[::-1], 3)  # (len(self.meta['frames]),h,w,3)
+            print("Stacking ...")
+            self.all_rays = torch.stack(self.all_rays, 0)
+            self.all_rgbs = torch.stack(self.all_rgbs, 0).reshape(-1, *self.img_wh[::-1], 3)
             if self.depth_data:
-                self.all_depths = self.all_depths[test_mask].reshape(-1,*self.img_wh[::-1], 1)
-            self.all_times = self.all_times[test_mask]
+                # Normalization of depth with training min/max not necessary, since only used for visualization
+                self.all_depths = torch.stack(self.all_depths, 0).reshape(-1, *self.img_wh[::-1], 1)
+                self.all_depths = 2 * (self.all_depths - self.all_depths.min()) / (self.all_depths.max() - self.all_depths.min())
+            self.all_times = torch.stack(self.all_times, 0)
+            print("Stack performed !!")
+
+        # Normalization over all timestamps
+        self.timestamps = np.array(self.timestamps)
+        self.all_times = ((self.all_times - self.timestamps.min()) / (self.timestamps.max() - self.timestamps.min()) * 2.0 - 1.0).float()
 
     def define_transforms(self):
         self.transform = T.ToTensor()
@@ -298,10 +312,9 @@ class BonnDataset(Dataset):
             rays_all.append(rays)
         return rays_all, torch.FloatTensor(val_times)
 
-    
     def compute_bbox(self):
         print("compute_bbox_by_cam_frustrm: start")
-        xyz_min = torch.Tensor([np.inf, np.inf, np.inf])
+        xyz_min = torch.tensor([np.inf, np.inf, np.inf])
         xyz_max = -xyz_min
         rays_o = self.all_rays[:, 0:3]
         viewdirs = self.all_rays[:, 3:6]

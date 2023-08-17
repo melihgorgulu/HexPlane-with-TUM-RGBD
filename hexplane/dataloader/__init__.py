@@ -6,7 +6,7 @@ from .droid_slam_data_midas_bonn import BonnDataset
 from .iphone_data import iPhoneDataset
 
 def get_train_dataset(cfg, is_stack=False, images=[], depths=[], poses=[],
-                      timestamps=[], intrinsics=[], image_size=[]):
+                      timestamps=[], intrinsics=[]):
     if cfg.data.dataset_name == "bonn_rgbd":
         train_dataset = BonnrgbdDataset(
             cfg.data.datadir,
@@ -21,7 +21,6 @@ def get_train_dataset(cfg, is_stack=False, images=[], depths=[], poses=[],
             poses,
             timestamps,
             intrinsics,
-            image_size,
             cfg.data.scene_bbox_min,
             cfg.data.scene_bbox_max,
             "train",
@@ -84,14 +83,29 @@ def get_train_dataset(cfg, is_stack=False, images=[], depths=[], poses=[],
     return train_dataset
 
 
-def get_test_dataset(cfg, is_stack=True, images=[], depths=[], poses=[], timestamps=[], intrinsics=[]):
+def get_test_dataset(cfg, is_stack=True, images=[], depths=[], poses=[],
+                     timestamps=[], intrinsics=[]):
     if cfg.data.dataset_name == "bonn_rgbd":
-        test_dataset = BonngbdDataset(
+        test_dataset = BonnrgbdDataset(
             cfg.data.datadir,
             "test",
             cfg.data.downsample,
             is_stack=is_stack,
             N_vis=cfg.data.N_vis,
+        )
+    elif cfg.data.dataset_name == "bonn_slam":
+        test_dataset = BonnDataset(
+            images,
+            poses,
+            timestamps,
+            intrinsics,
+            cfg.data.scene_bbox_min,
+            cfg.data.scene_bbox_max,
+            "test",
+            cfg.data.downsample,
+            is_stack=is_stack,
+            N_vis=cfg.data.N_vis,
+            cal_fine_bbox=cfg.data.cal_fine_bbox
         )
     elif cfg.data.dataset_name == "own_data":
         test_dataset = YourOwnDataset(
