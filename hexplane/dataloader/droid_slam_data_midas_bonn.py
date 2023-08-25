@@ -59,6 +59,9 @@ class BonnDataset(Dataset):
     def __init__(self, images, poses, timestamps, intrinsics,
                  scene_bbox_min, scene_bbox_max, split='train', downsample=1.0,
                  is_stack=False, N_vis=-1, cal_fine_bbox=False):
+        
+        if split == 'train':
+            assert(is_stack == False)
 
         self.N_vis = N_vis
         self.split = split
@@ -102,16 +105,16 @@ class BonnDataset(Dataset):
         self.timestamps = timestamps
         self.intrinsics = intrinsics
 
+        self.white_bg = False
+        self.near_far = [0.0, 10.0]
+        self.near = self.near_far[0]
+        self.far = self.near_far[1]
+        self.world_bound_scale = 1.1
+
         self.scene_bbox = torch.Tensor([scene_bbox_min, scene_bbox_max])
         self.blender2opencv = torch.Tensor([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
         self.read_meta()
         self.define_proj_mat()
-
-        self.white_bg = False
-        self.near_far = [0.0, 2.0]
-        self.near = self.near_far[0]
-        self.far = self.near_far[1]
-        self.world_bound_scale = 1.1
 
         if cal_fine_bbox and split == "train":
             xyz_min, xyz_max = self.compute_bbox()
@@ -199,10 +202,10 @@ class BonnDataset(Dataset):
                     disp = (
                         torch.nn.functional.interpolate(disp.unsqueeze(1), size=[h, w],
                             mode="bicubic", align_corners=False).squeeze()
-                            )
+                            ).clamp(1e-6, torch.inf)
 
                 if self.is_stack:
-                    self.all_depths += [1 / disp.view(-1)]
+                    self.all_depths += [1 / disp.view(-1).cpu()]
                 else:
                     self.all_depths[t*h*w: (t+1)*h*w] = 1 / disp.view(-1)
 
@@ -228,20 +231,13 @@ class BonnDataset(Dataset):
         self.poses = torch.stack(self.poses)
 
         if not self.is_stack:
-            self.all_rays = self.all_rays
-            self.all_rgbs = self.all_rgbs
-            if self.depth_data:
-                self.all_depths = self.all_depths
-                self.all_depths = 2 * (self.all_depths - self.all_depths.min()) / (self.all_depths.max() - self.all_depths.min())
             self.all_times = torch.cat(self.all_times, 0)
         else:
             print("Stacking ...")
             self.all_rays = torch.stack(self.all_rays, 0)
             self.all_rgbs = torch.stack(self.all_rgbs, 0).reshape(-1, *self.img_wh[::-1], 3)
             if self.depth_data:
-                # Normalization of depth with training min/max not necessary, since only used for visualization
                 self.all_depths = torch.stack(self.all_depths, 0).reshape(-1, *self.img_wh[::-1], 1)
-                self.all_depths = 2 * (self.all_depths - self.all_depths.min()) / (self.all_depths.max() - self.all_depths.min())
             self.all_times = torch.stack(self.all_times, 0)
             print("Stack performed !!")
 
