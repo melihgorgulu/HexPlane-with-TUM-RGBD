@@ -2,11 +2,12 @@ from .tumrgbd_dataset import TUMRgbdDataset
 from .bonnrgbd_dataset import BonnrgbdDataset
 # from .your_own_data import YourOwnDataset
 from .droid_slam_data_midas_bonn import BonnDataset
+from .droid_slam_data_midas_iphone import iPhoneSlamDataset
 # from .droid_slam_data import YourOwnDataset
 from .iphone_data import iPhoneDataset
 
 def get_train_dataset(cfg, is_stack=False, images=[], depths=[], poses=[],
-                      timestamps=[], intrinsics=[]):
+                      timestamps=[], intrinsics=[], time_scaling=[]):
     if cfg.data.dataset_name == "bonn_rgbd":
         train_dataset = BonnrgbdDataset(
             cfg.data.datadir,
@@ -28,6 +29,21 @@ def get_train_dataset(cfg, is_stack=False, images=[], depths=[], poses=[],
             is_stack=is_stack,
             N_vis=cfg.data.N_vis,
             cal_fine_bbox=cfg.data.cal_fine_bbox
+        )
+    elif cfg.data.dataset_name == "iphone_slam":
+        train_dataset = iPhoneSlamDataset(
+            images,
+            poses,
+            timestamps,
+            intrinsics,
+            cfg.data.scene_bbox_min,
+            cfg.data.scene_bbox_max,
+            "train",
+            cfg.data.downsample,
+            is_stack=is_stack,
+            N_vis=cfg.data.N_vis,
+            cal_fine_bbox=cfg.data.cal_fine_bbox,
+            time_scaling=time_scaling
         )
     elif cfg.data.dataset_name == "iphone":
         train_dataset = iPhoneDataset(
@@ -84,7 +100,7 @@ def get_train_dataset(cfg, is_stack=False, images=[], depths=[], poses=[],
 
 
 def get_test_dataset(cfg, is_stack=True, images=[], depths=[], poses=[],
-                     timestamps=[], intrinsics=[]):
+                     timestamps=[], intrinsics=[], time_scaling=[]):
     if cfg.data.dataset_name == "bonn_rgbd":
         test_dataset = BonnrgbdDataset(
             cfg.data.datadir,
@@ -106,6 +122,21 @@ def get_test_dataset(cfg, is_stack=True, images=[], depths=[], poses=[],
             is_stack=is_stack,
             N_vis=cfg.data.N_vis,
             cal_fine_bbox=cfg.data.cal_fine_bbox
+        )
+    elif cfg.data.dataset_name == "iphone_slam":
+        test_dataset = iPhoneSlamDataset(
+            images,
+            poses,
+            timestamps,
+            intrinsics,
+            cfg.data.scene_bbox_min,
+            cfg.data.scene_bbox_max,
+            "test",
+            cfg.data.downsample,
+            is_stack=is_stack,
+            N_vis=cfg.data.N_vis,
+            cal_fine_bbox=cfg.data.cal_fine_bbox,
+            time_scaling=time_scaling
         )
     elif cfg.data.dataset_name == "own_data":
         test_dataset = YourOwnDataset(
