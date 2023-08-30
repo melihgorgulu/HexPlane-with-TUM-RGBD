@@ -2,11 +2,9 @@ systems:
   basedir: ".logs/"
   vis_every: 10000
   add_timestamp: False
-  # ckpt: "/home/nico/HexPlane-with-TUM-RGBD/.logs/100k_TV_t_s_20/tum_rgbd.th"
 
 model:
   model_name: "HexPlane"
-  # N_voxel_init: 8000000
   time_grid_init: 1
   time_grid_final: 1066 # according to github, this should be set to frame_number - 1
   upsampling_type: aligned
@@ -16,8 +14,6 @@ model:
   depth_loss: False
   depth_loss_weight: 0.01
 
-  # density_n_comp: [24, 12, 12]
-  # app_n_comp: [48, 24, 24]
   fea2denseAct: relu
 
   TV_t_s_ratio: 20
@@ -31,10 +27,6 @@ model:
   init_shift: 0.5
   density_dim: 8
   DensityMode: "general_MLP"
-
-  # density_featureC: 256
-  # app_featureC: 256
-
 
 data:
   dataset_name: bonn_slam
