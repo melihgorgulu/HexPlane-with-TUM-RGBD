@@ -55,11 +55,11 @@ def pose_spherical(theta, phi, radius):
     return c2w
 
 
-class BonnDataset(Dataset):
+class iPhoneSlamDataset(Dataset):
     def __init__(self, images, poses, timestamps, intrinsics,
                  scene_bbox_min, scene_bbox_max, split='train', downsample=1.0,
-                 is_stack=False, N_vis=-1, cal_fine_bbox=False):
-
+                 is_stack=False, N_vis=-1, cal_fine_bbox=False, time_scaling=[]):
+        
         if split == 'train':
             assert(is_stack == False)
 
@@ -68,9 +68,10 @@ class BonnDataset(Dataset):
         self.is_stack = is_stack
         self.downsample = downsample
         self.define_transforms()
+        self.time_scaling = time_scaling
 
         self.ndc_ray = False # currently does not work
-        self.depth_data = True
+        self.depth_data = False
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -106,7 +107,8 @@ class BonnDataset(Dataset):
         self.intrinsics = intrinsics
 
         self.white_bg = False
-        self.near_far = [0.0, 10.0]
+        # self.near_far = [0.0, 1.0]
+        self.near_far = [0.019794557326859603, 0.5194470251150825]
         self.near = self.near_far[0]
         self.far = self.near_far[1]
         self.world_bound_scale = 1.1
@@ -138,11 +140,12 @@ class BonnDataset(Dataset):
 
         t = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 0], [0, 0, 0, 1]])
         poses = [np.dot(t, p) for p in poses]
-        
-        w, h = int(640/self.downsample), int(480/self.downsample)
-        self.img_wh = [w,h]
 
-        self.focal_x, self.focal_y, self.cx, self.cy = self.intrinsics
+        self.focal_x, self.focal_y, self.cx, self.cy, w, h, _ = self.intrinsics[0]
+        all_cameras = self.intrinsics.copy()
+        w = int(w / self.downsample)
+        h = int(h / self.downsample)
+        self.img_wh = [w, h]
 
         # ray directions for all pixels, same for all images (same H, W, focal)
         self.directions = get_ray_directions(h, w, [self.focal_x,self.focal_y], center=[self.cx, self.cy])  # (h, w, 3)
@@ -158,14 +161,12 @@ class BonnDataset(Dataset):
 
         if self.split == "train":
             idxs = list(range(0, len(self.images)))
-            idxs = [num for num in idxs if (num+1) % 8 != 0]
             N_images_train = len(idxs)
             self.all_rays = torch.zeros(h*w*N_images_train, 6)
             self.all_rgbs = torch.zeros(h*w*N_images_train, 3)
             self.all_depths = torch.zeros(h*w*N_images_train)
         else:
             idxs = list(range(0, len(self.images)))
-            idxs = [num for num in idxs if (num+1) % 8 == 0]
             self.all_rays = []
             self.all_rgbs = []
             self.all_depths = []
@@ -178,12 +179,11 @@ class BonnDataset(Dataset):
             img = Image.open(image_path)
             image = img.copy()
             
-            if self.downsample!=1.0:
-                img = img.resize(self.img_wh, Image.LANCZOS)
             img = self.transform(img)  # (3, h, w)
             img = img.view(-1, w*h).permute(1, 0) # (h*w, 3) RGBA
-            if img.shape[-1]==4:
+            if img.shape[-1] == 4:
                 img = img[:, :3] * img[:, -1:] + (1 - img[:, -1:])  # blend A to RGB
+                img = img[:, 0:3]
 
             if self.is_stack:
                 self.all_rgbs += [img]
@@ -194,6 +194,9 @@ class BonnDataset(Dataset):
             if self.depth_data:
                 # always use full resolution RGB for depth map
                 image = self.transform(image)
+                if image.shape[0] == 4:
+                    image = image[:3] * image[-1:] + (1 - image[-1:])  # blend A to RGB
+                    image = image[:3]
                 img = self.midas_transform({"image": image.permute(1, 2, 0).cpu().numpy()})["image"]
 
                 with torch.no_grad():
@@ -209,7 +212,11 @@ class BonnDataset(Dataset):
                 else:
                     self.all_depths[t*h*w: (t+1)*h*w] = 1 / disp.view(-1)
 
-            rays_o, rays_d = get_rays(self.directions, c2w)  # both (h*w, 3)
+            # rays_o, rays_d = get_rays(self.directions, c2w)  # both (h*w, 3)
+            camera = all_cameras[i][-1]
+            pixels = camera.get_pixel_centers()
+            rays_d = torch.tensor(camera.pixels_to_rays(pixels)).float().view([-1,3])
+            rays_o = torch.tensor(camera.position[None, :]).float().expand_as(rays_d)
             if self.ndc_ray:
                 rays_o, rays_d = ndc_rays_blender_tum(h, w, [self.focal_x, self.focal_y], 1.0, rays_o, rays_d)
 
@@ -243,7 +250,12 @@ class BonnDataset(Dataset):
 
         # Normalization over all timestamps
         self.timestamps = np.array(self.timestamps)
-        self.all_times = ((self.all_times - self.timestamps.min()) / (self.timestamps.max() - self.timestamps.min()) * 2.0 - 1.0).float()
+        if self.split == "train":
+            self.time_scaling = [self.timestamps.min(), self.timestamps.max()]
+            self.all_times = ((self.all_times - self.timestamps.min()) / (self.timestamps.max() - self.timestamps.min()) * 2.0 - 1.0).float()
+        if self.split == "test":
+            time_min, time_max = self.time_scaling
+            self.all_times = ((self.all_times - time_min) / (time_max - time_min) * 2.0 - 1.0).float()
 
     def define_transforms(self):
         self.transform = T.ToTensor()
@@ -285,7 +297,7 @@ class BonnDataset(Dataset):
         render_poses = torch.stack(
             [
                 pose_spherical(angle, 0.0, 0.0)
-                for angle in np.linspace(60, 100, 500 + 1)[:-1]
+                for angle in np.linspace(60, 100, 475 + 1)[:-1]
             ],
             0,
         )

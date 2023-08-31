@@ -56,6 +56,9 @@ class ColmapDataset(Dataset):
     def __init__(self, image_dir, poses, intrinsics, scene_bbox_min, scene_bbox_max, split='train', downsample=1.0,
                   is_stack=False, N_vis=-1, cal_fine_bbox=False):
 
+        if split == 'train':
+            assert(is_stack == False)
+
         self.N_vis = N_vis
         self.root_dir = poses
         self.split = split
@@ -70,7 +73,7 @@ class ColmapDataset(Dataset):
         self.intrinsics = intrinsics
 
         self.white_bg = True
-        self.near_far = [0.1, 10.0] # TODO: check this
+        self.near_far = [0.0, 10.0] # TODO: check this
         self.near = self.near_far[0]
         self.far = self.near_far[1]
         self.world_bound_scale = 1.1
