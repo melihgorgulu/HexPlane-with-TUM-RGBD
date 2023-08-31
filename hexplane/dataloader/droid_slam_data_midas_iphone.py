@@ -71,7 +71,7 @@ class iPhoneSlamDataset(Dataset):
         self.time_scaling = time_scaling
 
         self.ndc_ray = False # currently does not work
-        self.depth_data = True
+        self.depth_data = False
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -107,7 +107,8 @@ class iPhoneSlamDataset(Dataset):
         self.intrinsics = intrinsics
 
         self.white_bg = False
-        self.near_far = [0.0, 1.0]
+        # self.near_far = [0.0, 1.0]
+        self.near_far = [0.019794557326859603, 0.5194470251150825]
         self.near = self.near_far[0]
         self.far = self.near_far[1]
         self.world_bound_scale = 1.1
@@ -140,7 +141,8 @@ class iPhoneSlamDataset(Dataset):
         t = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 0], [0, 0, 0, 1]])
         poses = [np.dot(t, p) for p in poses]
 
-        self.focal_x, self.focal_y, self.cx, self.cy, w, h = self.intrinsics[0]
+        self.focal_x, self.focal_y, self.cx, self.cy, w, h, _ = self.intrinsics[0]
+        all_cameras = self.intrinsics.copy()
         w = int(w / self.downsample)
         h = int(h / self.downsample)
         self.img_wh = [w, h]
@@ -210,7 +212,11 @@ class iPhoneSlamDataset(Dataset):
                 else:
                     self.all_depths[t*h*w: (t+1)*h*w] = 1 / disp.view(-1)
 
-            rays_o, rays_d = get_rays(self.directions, c2w)  # both (h*w, 3)
+            # rays_o, rays_d = get_rays(self.directions, c2w)  # both (h*w, 3)
+            camera = all_cameras[i][-1]
+            pixels = camera.get_pixel_centers()
+            rays_d = torch.tensor(camera.pixels_to_rays(pixels)).float().view([-1,3])
+            rays_o = torch.tensor(camera.position[None, :]).float().expand_as(rays_d)
             if self.ndc_ray:
                 rays_o, rays_d = ndc_rays_blender_tum(h, w, [self.focal_x, self.focal_y], 1.0, rays_o, rays_d)
 
