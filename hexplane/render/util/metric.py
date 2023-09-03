@@ -75,3 +75,66 @@ def rgb_ssim(
     ssim_map = numer / denom
     ssim = np.mean(ssim_map)
     return ssim_map if return_map else ssim
+
+def masked_rgb_ssim(
+    img0,
+    img1,
+    mask,
+    max_val,
+    filter_size=11,
+    filter_sigma=1.5,
+    k1=0.01,
+    k2=0.03,
+    return_map=False,
+):
+    # Modified from https://github.com/google/mipnerf/blob/16e73dfdb52044dcceb47cda5243a686391a6e0f/internal/math.py#L58
+    assert len(img0.shape) == 3
+    assert img0.shape[-1] == 3
+    assert img0.shape == img1.shape
+
+    # Construct a 1D Gaussian blur filter.
+    hw = filter_size // 2
+    shift = (2 * hw - filter_size + 1) / 2
+    f_i = ((np.arange(filter_size) - hw + shift) / filter_sigma) ** 2
+    filt = np.exp(-0.5 * f_i)
+    filt /= np.sum(filt)
+
+    # Blur in x and y (faster than the 2D convolution).
+    def convolve2d(z, m, f):
+        z_ = signal.convolve2d(z * m, f, mode="valid")
+        m_ = signal.convolve2d(m, np.ones_like(f), mode="valid")
+        x = np.zeros_like(m_)
+        mask = (m_ != 0)
+        x[mask] = 1/m_[mask]
+        return z_ * np.ones_like(f).sum() * x, mask.astype(z_.dtype)
+    
+    filt_fn = lambda z, m: np.stack(
+        [
+            convolve2d(convolve2d(z[..., i], m[0], filt[:, None])[0],
+                       convolve2d(z[..., i], m[0], filt[:, None])[1],
+                       filt[None, :])[0]
+            for i in range(z.shape[-1])
+        ],
+        -1,
+    )
+    mu0 = filt_fn(img0, mask)
+    mu1 = filt_fn(img1, mask)
+    mu00 = mu0 * mu0
+    mu11 = mu1 * mu1
+    mu01 = mu0 * mu1
+    sigma00 = filt_fn(img0**2, mask) - mu00
+    sigma11 = filt_fn(img1**2, mask) - mu11
+    sigma01 = filt_fn(img0 * img1, mask) - mu01
+
+    # Clip the variances and covariances to valid values.
+    # Variance must be non-negative:
+    sigma00 = np.maximum(0.0, sigma00)
+    sigma11 = np.maximum(0.0, sigma11)
+    sigma01 = np.sign(sigma01) * np.minimum(np.sqrt(sigma00 * sigma11), np.abs(sigma01))
+    c1 = (k1 * max_val) ** 2
+    c2 = (k2 * max_val) ** 2
+    numer = (2 * mu01 + c1) * (2 * sigma01 + c2)
+    denom = (mu00 + mu11 + c1) * (sigma00 + sigma11 + c2)
+    ssim_map = numer / denom
+    ssim = np.mean(ssim_map)
+    return ssim_map if return_map else ssim

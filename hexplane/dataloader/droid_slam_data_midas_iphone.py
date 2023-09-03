@@ -73,6 +73,8 @@ class iPhoneSlamDataset(Dataset):
         self.ndc_ray = False # currently does not work
         self.depth_data = False
 
+        self.poses = np.stack(poses)
+
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # load Midas depth model
@@ -102,21 +104,18 @@ class iPhoneSlamDataset(Dataset):
         )
 
         self.images = images
-        self.poses = poses
         self.timestamps = timestamps
         self.intrinsics = intrinsics
 
         self.white_bg = False
-        # self.near_far = [0.0, 1.0]
-        self.near_far = [0.019794557326859603, 0.5194470251150825]
-        self.near = self.near_far[0]
-        self.far = self.near_far[1]
         self.world_bound_scale = 1.1
 
         self.scene_bbox = torch.Tensor([scene_bbox_min, scene_bbox_max])
         self.blender2opencv = torch.Tensor([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
         self.read_meta()
-        self.define_proj_mat()
+
+        self.near = self.near_far[0]
+        self.far = self.near_far[1]
 
         if cal_fine_bbox and split == "train":
             xyz_min, xyz_max = self.compute_bbox()
@@ -127,25 +126,13 @@ class iPhoneSlamDataset(Dataset):
    
     def read_meta(self):
 
-        traj_droid = self.poses
-
-        rot = R.from_quat(traj_droid[:, 3:])
-        rot = rot.as_matrix()
-        poses = np.eye(4, 4)[None, :].repeat(rot.shape[0], axis=0)
-        poses[:, :3, :3] = rot
-        poses[:, :3, 3] = traj_droid[:, :3]
-
-        t = np.array([[0, 0, -1, 0], [0, 1, 0, 0], [1, 0, 0, 0], [0, 0, 0, 1]])
-        poses = [np.dot(t, p) for p in poses]
-
-        t = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 0], [0, 0, 0, 1]])
-        poses = [np.dot(t, p) for p in poses]
-
-        self.focal_x, self.focal_y, self.cx, self.cy, w, h, _ = self.intrinsics[0]
+        self.focal_x, self.focal_y, self.cx, self.cy, w, h, near, far, _ = self.intrinsics[0]
         all_cameras = self.intrinsics.copy()
         w = int(w / self.downsample)
         h = int(h / self.downsample)
         self.img_wh = [w, h]
+
+        self.near_far = [near, far]
 
         # ray directions for all pixels, same for all images (same H, W, focal)
         self.directions = get_ray_directions(h, w, [self.focal_x,self.focal_y], center=[self.cx, self.cy])  # (h, w, 3)
@@ -155,7 +142,6 @@ class iPhoneSlamDataset(Dataset):
         self.midas.eval()
         self.midas.to(self.device)
 
-        self.poses = []
         timestamps = []
         self.all_times = []
 
@@ -170,11 +156,9 @@ class iPhoneSlamDataset(Dataset):
             self.all_rays = []
             self.all_rgbs = []
             self.all_depths = []
+            self.all_masks = []
 
         for t, i in enumerate(tqdm(idxs, desc=f'Loading data {self.split} ({len(idxs)})')):#img_list:#
-            c2w = torch.from_numpy(poses[i]).float()
-            self.poses += [c2w]
-
             image_path = self.images[i]
             img = Image.open(image_path)
             image = img.copy()
@@ -189,6 +173,14 @@ class iPhoneSlamDataset(Dataset):
                 self.all_rgbs += [img]
             else:
                 self.all_rgbs[t*h*w: (t+1)*h*w] = img
+
+            if self.split != "train":
+                mask_path = self.images[i].replace("rgb/1x", "covisible/2x/val")
+                mask = Image.open(mask_path)
+                new_size = (mask.width * 2, mask.height * 2)
+                mask = mask.resize(new_size, Image.LANCZOS)
+                mask = self.transform(mask)
+                self.all_masks += [mask]
 
             # compute midas depth
             if self.depth_data:
@@ -235,8 +227,6 @@ class iPhoneSlamDataset(Dataset):
             timestamp = torch.tensor(timestamps[i], dtype=torch.float64).expand(rays_o.shape[0], 1)
             self.all_times.append(timestamp)
 
-        self.poses = torch.stack(self.poses)
-
         if not self.is_stack:
             self.all_times = torch.cat(self.all_times, 0)
         else:
@@ -260,10 +250,6 @@ class iPhoneSlamDataset(Dataset):
     def define_transforms(self):
         self.transform = T.ToTensor()
         
-    def define_proj_mat(self):
-        poses = torch.eye(4).unsqueeze(0).repeat(self.poses.shape[0], 1, 1)
-        poses[:, :, :] = self.poses
-        self.proj_mat = self.intrinsics.unsqueeze(0) @ torch.inverse(poses)[:,:3]
         
     def __len__(self):
         return len(self.all_rgbs)
@@ -280,10 +266,12 @@ class iPhoneSlamDataset(Dataset):
             img = self.all_rgbs[idx]
             rays = self.all_rays[idx]
             time = self.all_times[idx]
+            mask = self.all_masks[idx]
 
             sample = {'rays': rays,
                       'rgbs': img,
-                      'time': time}
+                      'time': time,
+                      'mask': mask}
             
         if self.depth_data:
             sample['depths'] = self.all_depths[idx]

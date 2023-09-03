@@ -6,7 +6,7 @@ import torch
 from pytorch_msssim import ms_ssim as MS_SSIM
 from tqdm.auto import tqdm
 
-from HexPlane.hexplane.render.util.metric import rgb_lpips, rgb_ssim
+from HexPlane.hexplane.render.util.metric import rgb_lpips, rgb_ssim, masked_rgb_ssim
 from HexPlane.hexplane.render.util.util import visualize_depth_numpy
 
 
@@ -111,13 +111,26 @@ def evaluation(
             depth = data["depths"]
             gt_depth, _ = visualize_depth_numpy(depth.numpy(), near_far)
 
+        if "mask" in data.keys():
+            mask = data["mask"]
+        else:
+            mask = None
+
         if len(test_dataset):
             gt_rgb = gt_rgb.view(H, W, 3)
-            loss = torch.mean((rgb_map - gt_rgb) ** 2)
+            if mask is None:
+                loss = torch.mean((rgb_map - gt_rgb) ** 2)
+            else:
+                eps = 1e-6
+                loss = (((rgb_map-gt_rgb)**2) * mask.permute(1, 2, 0)).sum() / (3*mask.sum().clip(eps))
+
             PSNRs.append(-10.0 * np.log(loss.item()) / np.log(10.0))
 
             if compute_extra_metrics:
-                ssim = rgb_ssim(rgb_map, gt_rgb, 1)
+                if mask is None:
+                    ssim = rgb_ssim(rgb_map, gt_rgb, 1)
+                else:
+                    ssim = masked_rgb_ssim(rgb_map, gt_rgb, mask, 1)
                 ms_ssim = MS_SSIM(
                     rgb_map.permute(2, 0, 1).unsqueeze(0),
                     gt_rgb.permute(2, 0, 1).unsqueeze(0),

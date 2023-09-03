@@ -73,7 +73,7 @@ class ColmapDataset(Dataset):
         self.intrinsics = intrinsics
 
         self.white_bg = True
-        self.near_far = [0.0, 10.0] # TODO: check this
+        self.near_far = [0.0, 20.0] # TODO: check this
         self.near = self.near_far[0]
         self.far = self.near_far[1]
         self.world_bound_scale = 1.1
