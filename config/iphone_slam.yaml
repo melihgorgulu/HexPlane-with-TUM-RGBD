@@ -5,9 +5,8 @@ systems:
 
 model:
   model_name: "HexPlane"
-  # N_voxel_init: 8000000
   time_grid_init: 1
-  time_grid_final: 1066 # according to github, this should be set to frame_number - 1
+  time_grid_final: 1066 # dummy parameter, is overwritten with the number of frames
   upsampling_type: aligned
   upsample_list: [10000, 20000, 40000]
   update_emptymask_list: [15000, 25000, 45000, 60000]
@@ -15,8 +14,6 @@ model:
   depth_loss: False
   depth_loss_weight: 0.01
 
-  # density_n_comp: [24, 12, 12]
-  # app_n_comp: [48, 24, 24]
   fea2denseAct: relu
 
   TV_t_s_ratio: 20
@@ -30,9 +27,6 @@ model:
   init_shift: 0.5
   density_dim: 8
   DensityMode: "general_MLP"
-
-  # density_featureC: 256
-  # app_featureC: 256
 
 
 data:
@@ -53,5 +47,5 @@ optim:
 
 render_only: False
 render_test: True
-render_path: True
+render_path: False
 expname: iphone

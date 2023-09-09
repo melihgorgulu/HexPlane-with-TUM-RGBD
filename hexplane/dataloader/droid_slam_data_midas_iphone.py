@@ -127,7 +127,7 @@ class iPhoneSlamDataset(Dataset):
     def read_meta(self):
 
         self.focal_x, self.focal_y, self.cx, self.cy, w, h, near, far, _ = self.intrinsics[0]
-        all_cameras = self.intrinsics.copy()
+        self.all_cameras = self.intrinsics.copy()
         w = int(w / self.downsample)
         h = int(h / self.downsample)
         self.img_wh = [w, h]
@@ -157,11 +157,22 @@ class iPhoneSlamDataset(Dataset):
             self.all_rgbs = []
             self.all_depths = []
             self.all_masks = []
+            self.cam_id = []
+            flag_id = True
+
+        self.num_first_cam = len(idxs)
 
         for t, i in enumerate(tqdm(idxs, desc=f'Loading data {self.split} ({len(idxs)})')):#img_list:#
             image_path = self.images[i]
             img = Image.open(image_path)
             image = img.copy()
+
+            if self.split != 'train':
+                cam_id = int(os.path.basename(image_path)[0])
+                self.cam_id += [cam_id - 1]
+                if cam_id == 2 and flag_id:
+                    flag_id = False
+                    self.num_first_cam = t
             
             img = self.transform(img)  # (3, h, w)
             img = img.view(-1, w*h).permute(1, 0) # (h*w, 3) RGBA
@@ -205,7 +216,7 @@ class iPhoneSlamDataset(Dataset):
                     self.all_depths[t*h*w: (t+1)*h*w] = 1 / disp.view(-1)
 
             # rays_o, rays_d = get_rays(self.directions, c2w)  # both (h*w, 3)
-            camera = all_cameras[i][-1]
+            camera = self.all_cameras[i][-1]
             pixels = camera.get_pixel_centers()
             rays_d = torch.tensor(camera.pixels_to_rays(pixels)).float().view([-1,3])
             rays_o = torch.tensor(camera.position[None, :]).float().expand_as(rays_d)
@@ -223,6 +234,7 @@ class iPhoneSlamDataset(Dataset):
         # timestamps -= timestamps[0]
         # timestamps /= timestamps[-1]
 
+        self.cam_ids = []
         for i in range(len(timestamps)):
             timestamp = torch.tensor(timestamps[i], dtype=torch.float64).expand(rays_o.shape[0], 1)
             self.all_times.append(timestamp)
@@ -267,11 +279,15 @@ class iPhoneSlamDataset(Dataset):
             rays = self.all_rays[idx]
             time = self.all_times[idx]
             mask = self.all_masks[idx]
+            camera = self.all_cameras[idx][-1]
+            cam_id = self.cam_id[idx]
 
             sample = {'rays': rays,
                       'rgbs': img,
                       'time': time,
-                      'mask': mask}
+                      'mask': mask,
+                      'camera': camera,
+                      'cam_id': cam_id}
             
         if self.depth_data:
             sample['depths'] = self.all_depths[idx]

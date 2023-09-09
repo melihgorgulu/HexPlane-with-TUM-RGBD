@@ -231,6 +231,95 @@ class HexPlane(HexPlane_Base):
         inter = self.density_basis_mat(inter.T)  # Feature Projection
 
         return inter
+    
+    def compute_densityfeature_grad(
+        self, xyz_sampled: torch.Tensor, frame_time: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Compuate the density features of sampled points from density HexPlane.
+
+        Args:
+            xyz_sampled: (N, 3) sampled points' xyz coordinates.
+            frame_time: (N, 1) sampled points' frame time.
+
+        Returns:
+            density: (N) density of sampled points.
+        """
+        # Prepare coordinates for grid sampling.
+        # plane_coord: (3, B, 1, 2), coordinates for spatial planes, where plane_coord[:, 0, 0, :] = [[x, y], [x,z], [y,z]].
+        plane_coord = (
+            torch.stack(
+                (
+                    xyz_sampled[..., self.matMode[0]],
+                    xyz_sampled[..., self.matMode[1]],
+                    xyz_sampled[..., self.matMode[2]],
+                )
+            )
+            # .detach()
+            .view(3, -1, 1, 2)
+        )
+        # line_time_coord: (3, B, 1, 2) coordinates for spatial-temporal planes, where line_time_coord[:, 0, 0, :] = [[t, z], [t, y], [t, x]].
+        line_time_coord = torch.stack(
+            (
+                xyz_sampled[..., self.vecMode[0]],
+                xyz_sampled[..., self.vecMode[1]],
+                xyz_sampled[..., self.vecMode[2]],
+            )
+        )
+        line_time_coord = (
+            torch.stack(
+                (frame_time.expand(3, -1, -1).squeeze(-1), line_time_coord), dim=-1
+            )
+            # .detach()
+            .view(3, -1, 1, 2)
+        )
+
+        plane_feat, line_time_feat = [], []
+        # Extract features from six feature planes.
+        for idx_plane in range(len(self.density_plane)):
+            # Spatial Plane Feature: Grid sampling on density plane[idx_plane] given coordinates plane_coord[idx_plane].
+            plane_feat.append(
+                F.grid_sample(
+                    self.density_plane[idx_plane],
+                    plane_coord[[idx_plane]],
+                    align_corners=self.align_corners,
+                ).view(-1, *xyz_sampled.shape[:1])
+            )
+            # Spatial-Temoral Feature: Grid sampling on density line_time[idx_plane] plane given coordinates line_time_coord[idx_plane].
+            line_time_feat.append(
+                F.grid_sample(
+                    self.density_line_time[idx_plane],
+                    line_time_coord[[idx_plane]],
+                    align_corners=self.align_corners,
+                ).view(-1, *xyz_sampled.shape[:1])
+            )
+        plane_feat, line_time_feat = torch.stack(plane_feat, dim=0), torch.stack(
+            line_time_feat, dim=0
+        )
+
+        # Fusion One
+        if self.fusion_one == "multiply":
+            inter = plane_feat * line_time_feat
+        elif self.fusion_one == "sum":
+            inter = plane_feat + line_time_feat
+        elif self.fusion_one == "concat":
+            inter = torch.cat([plane_feat, line_time_feat], dim=0)
+        else:
+            raise NotImplementedError("no such fusion type")
+
+        # Fusion Two
+        if self.fusion_two == "multiply":
+            inter = torch.prod(inter, dim=0)
+        elif self.fusion_two == "sum":
+            inter = torch.sum(inter, dim=0)
+        elif self.fusion_two == "concat":
+            inter = inter.view(-1, inter.shape[-1])
+        else:
+            raise NotImplementedError("no such fusion type")
+
+        inter = self.density_basis_mat(inter.T)  # Feature Projection
+
+        return inter
 
     def compute_appfeature(
         self, xyz_sampled: torch.Tensor, frame_time: torch.Tensor
@@ -271,6 +360,95 @@ class HexPlane(HexPlane_Base):
                 (frame_time.expand(3, -1, -1).squeeze(-1), line_time_coord), dim=-1
             )
             .detach()
+            .view(3, -1, 1, 2)
+        )
+
+        plane_feat, line_time_feat = [], []
+        for idx_plane in range(len(self.app_plane)):
+            # Spatial Plane Feature: Grid sampling on app plane[idx_plane] given coordinates plane_coord[idx_plane].
+            plane_feat.append(
+                F.grid_sample(
+                    self.app_plane[idx_plane],
+                    plane_coord[[idx_plane]],
+                    align_corners=self.align_corners,
+                ).view(-1, *xyz_sampled.shape[:1])
+            )
+            # Spatial-Temoral Feature: Grid sampling on app line_time[idx_plane] plane given coordinates line_time_coord[idx_plane].
+            line_time_feat.append(
+                F.grid_sample(
+                    self.app_line_time[idx_plane],
+                    line_time_coord[[idx_plane]],
+                    align_corners=self.align_corners,
+                ).view(-1, *xyz_sampled.shape[:1])
+            )
+
+        plane_feat, line_time_feat = torch.stack(plane_feat), torch.stack(
+            line_time_feat
+        )
+
+        # Fusion One
+        if self.fusion_one == "multiply":
+            inter = plane_feat * line_time_feat
+        elif self.fusion_one == "sum":
+            inter = plane_feat + line_time_feat
+        elif self.fusion_one == "concat":
+            inter = torch.cat([plane_feat, line_time_feat], dim=0)
+        else:
+            raise NotImplementedError("no such fusion type")
+
+        # Fusion Two
+        if self.fusion_two == "multiply":
+            inter = torch.prod(inter, dim=0)
+        elif self.fusion_two == "sum":
+            inter = torch.sum(inter, dim=0)
+        elif self.fusion_two == "concat":
+            inter = inter.view(-1, inter.shape[-1])
+        else:
+            raise NotImplementedError("no such fusion type")
+
+        inter = self.app_basis_mat(inter.T)  # Feature Projection
+
+        return inter
+    
+    def compute_appfeature_grad(
+        self, xyz_sampled: torch.Tensor, frame_time: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Compuate the app features of sampled points from appearance HexPlane.
+
+        Args:
+            xyz_sampled: (N, 3) sampled points' xyz coordinates.
+            frame_time: (N, 1) sampled points' frame time.
+
+        Returns:
+            app_feature: (N, self.app_dim) density of sampled points.
+        """
+        # Prepare coordinates for grid sampling.
+        # plane_coord: (3, B, 1, 2), coordinates for spatial planes, where plane_coord[:, 0, 0, :] = [[x, y], [x,z], [y,z]].
+        plane_coord = (
+            torch.stack(
+                (
+                    xyz_sampled[..., self.matMode[0]],
+                    xyz_sampled[..., self.matMode[1]],
+                    xyz_sampled[..., self.matMode[2]],
+                )
+            )
+            # .detach()
+            .view(3, -1, 1, 2)
+        )
+        # line_time_coord: (3, B, 1, 2) coordinates for spatial-temporal planes, where line_time_coord[:, 0, 0, :] = [[t, z], [t, y], [t, x]].
+        line_time_coord = torch.stack(
+            (
+                xyz_sampled[..., self.vecMode[0]],
+                xyz_sampled[..., self.vecMode[1]],
+                xyz_sampled[..., self.vecMode[2]],
+            )
+        )
+        line_time_coord = (
+            torch.stack(
+                (frame_time.expand(3, -1, -1).squeeze(-1), line_time_coord), dim=-1
+            )
+            # .detach()
             .view(3, -1, 1, 2)
         )
 

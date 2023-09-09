@@ -444,89 +444,175 @@ class HexPlane_Base(torch.nn.Module):
             z_vals: (B, N_samples) tensor, z values.
         """
         # Prepare rays.
-        viewdirs = rays_chunk[:, 3:6]
-        xyz_sampled, z_vals, ray_valid = self.sample_rays(
-            rays_chunk[:, :3], viewdirs, is_train=is_train, N_samples=N_samples
-        )
-        dists = torch.cat(
-            (z_vals[:, 1:] - z_vals[:, :-1], torch.zeros_like(z_vals[:, :1])), dim=-1
-        )
-        rays_norm = torch.norm(viewdirs, dim=-1, keepdim=True)
-        if ndc_ray:
-            dists = dists * rays_norm
-        viewdirs = viewdirs / rays_norm
-
-        viewdirs = viewdirs.view(-1, 1, 3).expand(xyz_sampled.shape)
-        frame_time = frame_time.view(-1, 1, 1).expand(
-            xyz_sampled.shape[0], xyz_sampled.shape[1], 1
-        )
-
-        # Normalize coordinates.
-        xyz_sampled = self.normalize_coord(xyz_sampled)
-
-        # If emptiness mask is availabe, we first filter out rays with low opacities.
-        if self.emptyMask is not None:
-            emptiness = self.emptyMask.sample_empty(xyz_sampled[ray_valid])
-            empty_mask = emptiness > 0
-            ray_invalid = ~ray_valid
-            ray_invalid[ray_valid] |= ~empty_mask
-            ray_valid = ~ray_invalid
-
-        # Initialize sigma and rgb values.
-        sigma = torch.zeros(xyz_sampled.shape[:-1], device=xyz_sampled.device)
-        rgb = torch.zeros((*xyz_sampled.shape[:2], 3), device=xyz_sampled.device)
-
-        # Compute density feature and density if there are valid rays.
-        if ray_valid.any():
-            density_feature = self.compute_densityfeature(
-                xyz_sampled[ray_valid], frame_time[ray_valid]
+        if is_train:
+            viewdirs = rays_chunk[:, 3:6]
+            xyz_sampled, z_vals, ray_valid = self.sample_rays(
+                rays_chunk[:, :3], viewdirs, is_train=is_train, N_samples=N_samples
             )
-            density_feature = self.density_regressor(
-                xyz_sampled[ray_valid],
-                viewdirs[ray_valid],
-                density_feature,
-                frame_time[ray_valid],
+            dists = torch.cat(
+                (z_vals[:, 1:] - z_vals[:, :-1], torch.zeros_like(z_vals[:, :1])), dim=-1
             )
-            validsigma = self.feature2density(density_feature)
-            sigma[ray_valid] = validsigma.view(-1)
-        alpha, weight, bg_weight = raw2alpha(
-            sigma, dists * self.distance_scale
-        )  # alpha is the opacity, weight is the accumulated weight. bg_weight is the accumulated weight for last sampling point.
+            rays_norm = torch.norm(viewdirs, dim=-1, keepdim=True)
+            if ndc_ray:
+                dists = dists * rays_norm
+            viewdirs = viewdirs / rays_norm
 
-        # Compute appearance feature and rgb if there are valid rays (whose weight are above a threshold).
-        app_mask = weight > self.rayMarch_weight_thres
-        if app_mask.any():
-            app_features = self.compute_appfeature(
-                xyz_sampled[app_mask], frame_time[app_mask]
+            viewdirs = viewdirs.view(-1, 1, 3).expand(xyz_sampled.shape)
+            frame_time = frame_time.view(-1, 1, 1).expand(
+                xyz_sampled.shape[0], xyz_sampled.shape[1], 1
             )
-            valid_rgbs = self.app_regressor(
-                xyz_sampled[app_mask],
-                viewdirs[app_mask],
-                app_features,
-                frame_time[app_mask],
-            )
-            rgb[app_mask] = valid_rgbs
-        acc_map = torch.sum(weight, -1)
-        rgb_map = torch.sum(weight[..., None] * rgb, -2)
 
-        # If white_bg or (is_train and torch.rand((1,))<0.5):
-        if white_bg or not is_train:
-            rgb_map = rgb_map + (1.0 - acc_map[..., None])
-        else:
-            rgb_map = rgb_map + (1.0 - acc_map[..., None]) * torch.rand(
-                size=(1, 3), device=rgb_map.device
-            )
-        rgb_map = rgb_map.clamp(0, 1)
+            # Normalize coordinates.
+            xyz_sampled = self.normalize_coord(xyz_sampled)
 
-        # Calculate depth.
-        if self.depth_loss:
-            depth_map = torch.sum(weight * z_vals, -1)
-            depth_map = depth_map + (1.0 - acc_map) * rays_chunk[..., -1]
-        else:
-            with torch.no_grad():
+            # If emptiness mask is availabe, we first filter out rays with low opacities.
+            if self.emptyMask is not None:
+                emptiness = self.emptyMask.sample_empty(xyz_sampled[ray_valid])
+                empty_mask = emptiness > 0
+                ray_invalid = ~ray_valid
+                ray_invalid[ray_valid] |= ~empty_mask
+                ray_valid = ~ray_invalid
+
+            # Initialize sigma and rgb values.
+            sigma = torch.zeros(xyz_sampled.shape[:-1], device=xyz_sampled.device)
+            rgb = torch.zeros((*xyz_sampled.shape[:2], 3), device=xyz_sampled.device)
+
+            # Compute density feature and density if there are valid rays.
+            if ray_valid.any():
+                density_feature = self.compute_densityfeature(
+                    xyz_sampled[ray_valid], frame_time[ray_valid]
+                )
+                density_feature = self.density_regressor(
+                    xyz_sampled[ray_valid],
+                    viewdirs[ray_valid],
+                    density_feature,
+                    frame_time[ray_valid],
+                )
+                validsigma = self.feature2density(density_feature)
+                sigma[ray_valid] = validsigma.view(-1)
+            alpha, weight, bg_weight = raw2alpha(
+                sigma, dists * self.distance_scale
+            )  # alpha is the opacity, weight is the accumulated weight. bg_weight is the accumulated weight for last sampling point.
+
+            # Compute appearance feature and rgb if there are valid rays (whose weight are above a threshold).
+            app_mask = weight > self.rayMarch_weight_thres
+            if app_mask.any():
+                app_features = self.compute_appfeature(
+                    xyz_sampled[app_mask], frame_time[app_mask]
+                )
+                valid_rgbs = self.app_regressor(
+                    xyz_sampled[app_mask],
+                    viewdirs[app_mask],
+                    app_features,
+                    frame_time[app_mask],
+                )
+                rgb[app_mask] = valid_rgbs
+            acc_map = torch.sum(weight, -1)
+            rgb_map = torch.sum(weight[..., None] * rgb, -2)
+
+            # If white_bg or (is_train and torch.rand((1,))<0.5):
+            if white_bg or not is_train:
+                rgb_map = rgb_map + (1.0 - acc_map[..., None])
+            else:
+                rgb_map = rgb_map + (1.0 - acc_map[..., None]) * torch.rand(
+                    size=(1, 3), device=rgb_map.device
+                )
+            rgb_map = rgb_map.clamp(0, 1)
+
+            # Calculate depth.
+            if self.depth_loss:
                 depth_map = torch.sum(weight * z_vals, -1)
                 depth_map = depth_map + (1.0 - acc_map) * rays_chunk[..., -1]
-        return rgb_map, depth_map, alpha, z_vals
+            else:
+                with torch.no_grad():
+                    depth_map = torch.sum(weight * z_vals, -1)
+                    depth_map = depth_map + (1.0 - acc_map) * rays_chunk[..., -1]
+            return rgb_map, depth_map, alpha, z_vals
+        
+        else:
+            viewdirs = rays_chunk[:, 3:6]
+            xyz_sampled, z_vals, ray_valid = self.sample_rays(
+                rays_chunk[:, :3], viewdirs, is_train=is_train, N_samples=N_samples
+            )
+            dists = torch.cat(
+                (z_vals[:, 1:] - z_vals[:, :-1], torch.zeros_like(z_vals[:, :1])), dim=-1
+            )
+            rays_norm = torch.norm(viewdirs, dim=-1, keepdim=True)
+            if ndc_ray:
+                dists = dists * rays_norm
+            viewdirs = viewdirs / rays_norm
+
+            viewdirs = viewdirs.view(-1, 1, 3).expand(xyz_sampled.shape)
+            frame_time = frame_time.view(-1, 1, 1).expand(
+                xyz_sampled.shape[0], xyz_sampled.shape[1], 1
+            )
+
+            # Normalize coordinates.
+            xyz_sampled = self.normalize_coord(xyz_sampled)
+
+            # If emptiness mask is availabe, we first filter out rays with low opacities.
+            if self.emptyMask is not None:
+                emptiness = self.emptyMask.sample_empty(xyz_sampled[ray_valid])
+                empty_mask = emptiness > 0
+                ray_invalid = ~ray_valid
+                ray_invalid[ray_valid] |= ~empty_mask
+                ray_valid = ~ray_invalid
+
+            # Initialize sigma and rgb values.
+            sigma = torch.zeros(xyz_sampled.shape[:-1], device=xyz_sampled.device)
+            rgb = torch.zeros((*xyz_sampled.shape[:2], 3), device=xyz_sampled.device)
+
+            # Compute density feature and density if there are valid rays.
+            if ray_valid.any():
+                density_feature = self.compute_densityfeature_grad(
+                    xyz_sampled[ray_valid], frame_time[ray_valid]
+                )
+                density_feature = self.density_regressor(
+                    xyz_sampled[ray_valid],
+                    viewdirs[ray_valid],
+                    density_feature,
+                    frame_time[ray_valid],
+                )
+                validsigma = self.feature2density(density_feature)
+                sigma[ray_valid] = validsigma.view(-1)
+            alpha, weight, bg_weight = raw2alpha(
+                sigma, dists * self.distance_scale
+            )  # alpha is the opacity, weight is the accumulated weight. bg_weight is the accumulated weight for last sampling point.
+
+            # Compute appearance feature and rgb if there are valid rays (whose weight are above a threshold).
+            app_mask = weight > self.rayMarch_weight_thres
+            if app_mask.any():
+                app_features = self.compute_appfeature_grad(
+                    xyz_sampled[app_mask], frame_time[app_mask]
+                )
+                valid_rgbs = self.app_regressor(
+                    xyz_sampled[app_mask],
+                    viewdirs[app_mask],
+                    app_features,
+                    frame_time[app_mask],
+                )
+                rgb[app_mask] = valid_rgbs
+            acc_map = torch.sum(weight, -1)
+            rgb_map = torch.sum(weight[..., None] * rgb, -2)
+
+            # If white_bg or (is_train and torch.rand((1,))<0.5):
+            if white_bg or not is_train:
+                rgb_map = rgb_map + (1.0 - acc_map[..., None])
+            else:
+                rgb_map = rgb_map + (1.0 - acc_map[..., None]) * torch.rand(
+                    size=(1, 3), device=rgb_map.device
+                )
+            rgb_map = rgb_map.clamp(0, 1)
+
+            # Calculate depth.
+            if self.depth_loss:
+                depth_map = torch.sum(weight * z_vals, -1)
+                depth_map = depth_map + (1.0 - acc_map) * rays_chunk[..., -1]
+            else:
+                with torch.no_grad():
+                    depth_map = torch.sum(weight * z_vals, -1)
+                    depth_map = depth_map + (1.0 - acc_map) * rays_chunk[..., -1]
+            return rgb_map, depth_map, alpha, z_vals
 
     @torch.no_grad()
     def updateEmptyMask(self, gridSize=(200, 200, 200), time_grid=64):
